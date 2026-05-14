@@ -71,6 +71,8 @@ from .plot import (
 )
 from .tree import TreeExplainer
 
+from .vision import ImageExplainer
+
 # public utils functions
 from .utils import (  # sets.py  # tree.py
     get_explicit_subsets,
@@ -108,6 +110,7 @@ __all__ = [
     "TreeExplainer",
     "TabPFNExplainer",
     "AgnosticExplainer",
+    "ImageExplainer",
     # imputers
     "MarginalImputer",
     "BaselineImputer",
