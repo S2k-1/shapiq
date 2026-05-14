@@ -86,7 +86,7 @@ class ImageExplainer(Explainer):
     
     def _default_player_strategy(self) -> PlayerStrategy:
         if self._model_type == "vit":
-            return PatchStrategy(grid_size=12, patch_size=9)
+            return PatchStrategy(grid_size=12, n_players=9)
         
         elif self._model_type == "resnet":
             return SuperpixelStrategy(n_segments=10)

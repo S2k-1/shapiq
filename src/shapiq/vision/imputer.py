@@ -1,12 +1,15 @@
+from typing import Literal
+
+import numpy as np
 import torch
 from transformers import ViTImageProcessor
 
 from shapiq.imputer.base import Imputer
+
 from .masking import MaskingStrategy
 from .players import PlayerStrategy
-from .explainer import ModelType
 
-import numpy as np
+ModelType = Literal["resnet", "vit"]
 
 class ImageImputer(Imputer):
     """
@@ -27,6 +30,9 @@ class ImageImputer(Imputer):
         
         self.image = image
         self.player_strategy = player_strategy
+        self.player_masks = None
+        if model_type == "resnet":
+            self.player_masks = self.player_strategy.get_masks(self.image)
         self.masking_strategy = masking_strategy
         self.model_type = model_type
         
@@ -48,8 +54,8 @@ class ImageImputer(Imputer):
         
         """
         if self.model_type == "resnet":
-            player_masks = self.player_strategy.get_masks(self.image)
-            masked_images = self.masking_strategy.apply(self.image, player_masks, coalitions) # shape (n_coalitions, H, W, C)
+            # player_masks = self.player_strategy.get_masks(self.image)
+            masked_images = self.masking_strategy.apply(self.image, self.player_masks, coalitions) # shape (n_coalitions, H, W, C)
             predictions = self.model(masked_images)
             
             return np.array(predictions).squeeze()
@@ -59,6 +65,10 @@ class ImageImputer(Imputer):
             processor = ViTImageProcessor.from_pretrained("google/vit-base-patch32-384")
             inputs = processor(images=self.image, return_tensors="pt")
             pixel_values = inputs["pixel_values"]
+            
+            with torch.no_grad():
+                logits = self.model(pixel_values=pixel_values).logits
+            class_id = int(logits.argmax(-1).item())
             
             if coalitions.ndim == 1:
                 coalitions = coalitions.reshape(1, -1)
@@ -72,7 +82,7 @@ class ImageImputer(Imputer):
                 logits = self.model(pixel_values=batch, bool_masked_pos=bool_masks).logits
                 probs = torch.softmax(logits, dim=-1)
 
-            return probs[:, self.class_id].cpu().numpy()
+            return probs[:, class_id].cpu().numpy()
         
         else: 
             raise ValueError(f"Unsupported model type: {self.model_type}")
@@ -86,7 +96,12 @@ class ImageImputer(Imputer):
 
         """
         if self.model_type == "resnet":
-            empty_image = self.masking_strategy.apply(self.image, self.player_masks, np.array([[False] * self.player_strategy.n_players]))[0]
+            # player_masks = self.player_strategy.get_masks(self.image)
+            empty_image = self.masking_strategy.apply(
+                self.image,
+                self.player_masks,
+                np.array([[False] * self.player_strategy.n_players]),
+            )[0]
             prediction = self.model(empty_image[np.newaxis]) # batch: shape (1, H, W, C)
 
             return float(prediction[0])
