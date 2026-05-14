@@ -58,7 +58,8 @@ class ImageExplainer(Explainer):
             model=model, 
             image=data, 
             masking_strategy=masking_strategy, 
-            player_strategy=player_strategy
+            player_strategy=player_strategy, 
+            model_type=model_type
         )
         
         self._approximator = setup_approximator(
@@ -77,7 +78,7 @@ class ImageExplainer(Explainer):
         interaction_values = self.approximator.approximate(budget=budget, game=self.imputer)
         interaction_values.baseline_value = self.baseline_value
         
-         # Adjust the Baseline Value if the empty value is the baseline
+        # Adjust the Baseline Value if the empty value is the baseline
         if is_empty_value_the_baseline(interaction_values.index):
             interaction_values[()] = interaction_values.baseline_value
         
