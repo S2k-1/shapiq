@@ -8,7 +8,7 @@ from shapiq.interaction_values import InteractionValues
 from shapiq.game_theory.indices import is_empty_value_the_baseline
 
 from .imputer import ImageImputer
-from .players import PlayerStrategy, SuperpixelStrategy
+from .players import PlayerStrategy, SuperpixelStrategy, PatchStrategy
 from .masking import MaskingStrategy, MeanColorMasking
 
 from shapiq.explainer.base import Explainer
@@ -51,8 +51,8 @@ class ImageExplainer(Explainer):
         
         self._model_type = model_type
 
-        player_strategy = player_strategy or SuperpixelStrategy()
-        masking_strategy = masking_strategy or MeanColorMasking()
+        player_strategy = player_strategy or self._default_player_strategy()
+        masking_strategy = masking_strategy or self._default_masking_strategy()
         
         self._imputer = ImageImputer(
             model=model, 
@@ -83,6 +83,19 @@ class ImageExplainer(Explainer):
             interaction_values[()] = interaction_values.baseline_value
         
         return interaction_values
+    
+    def _default_player_strategy(self) -> PlayerStrategy:
+        if self._model_type == "vit":
+            return PatchStrategy(grid_size=12, patch_size=9)
+        
+        elif self._model_type == "resnet":
+            return SuperpixelStrategy(n_segments=10)
+        
+        else:
+            raise ValueError(f"Unsupported model type: {self._model_type}")
+        
+    def _default_masking_strategy(self) -> MaskingStrategy:
+        return MeanColorMasking()
 
     @property
     def baseline_value(self) -> float:
