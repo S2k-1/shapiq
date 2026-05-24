@@ -1,20 +1,46 @@
 """Vision-based explanation methods for image models."""
 
-# TODO: Adjust this when package is more mature and we have a better sense of the structure of the vision module. For now, we can just import everything in the submodules here for ease of use.
-from .players import PlayerStrategy, SuperpixelStrategy
-from .masking import MaskingStrategy, ZeroMasking, MeanColorMasking
+from .architecture import ModelArchitectureStrategy, ResNetArchitecture, ViTArchitecture
 from .imputer import ImageImputer
+from .masking import (
+    BoolMaskedPosStrategy,
+    LatentMaskingStrategy,
+    MaskTokenStrategy,
+    MeanColorMasking,
+    PixelMaskingStrategy,
+    ZeroMasking,
+)
+from .players import (
+    LatentPlayerStrategy,
+    PatchStrategy,
+    PixelPlayerStrategy,
+    PlayerStrategy,
+    SuperpixelStrategy,
+)
 
 __all__ = [
+    # Architecture
+    "ModelArchitectureStrategy",
+    "ResNetArchitecture",
+    "ViTArchitecture",
+    # Imputer
     "ImageImputer",
-    "PlayerStrategy",
-    "SuperpixelStrategy",
-    "MaskingStrategy",
-    "ZeroMasking",
+    # Masking
+    "PixelMaskingStrategy",
+    "LatentMaskingStrategy",
     "MeanColorMasking",
+    "ZeroMasking",
+    "BoolMaskedPosStrategy",
+    "MaskTokenStrategy",
+    # Players
+    "PlayerStrategy",
+    "PixelPlayerStrategy",
+    "LatentPlayerStrategy",
+    "SuperpixelStrategy",
+    "PatchStrategy",
 ]
 
-# This function is used to lazily import the ImageExplainer class when it is accessed as an attribute of the module.
+
 def __getattr__(name: str) -> object:
     if name == "ImageExplainer":
         from .explainer import ImageExplainer

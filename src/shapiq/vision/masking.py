@@ -1,9 +1,8 @@
 from abc import ABC, abstractmethod
 import numpy as np
+import torch
 
-class MaskingStrategy(ABC):
-    """Defines how the masked pixels are imputed/replaced."""
-    
+class PixelMaskingStrategy(ABC):
     @abstractmethod
     def apply(self, image: np.ndarray, player_masks: np.ndarray, coalition: np.ndarray) -> np.ndarray:
         """
@@ -18,7 +17,7 @@ class MaskingStrategy(ABC):
         ...
 
 
-class MeanColorMasking(MaskingStrategy):
+class MeanColorMasking(PixelMaskingStrategy):
     """Imputes the masked pixels with the mean color of the entire image."""
     
     def apply(self, image: np.ndarray, player_masks: np.ndarray, coalition: np.ndarray) -> np.ndarray:
@@ -32,15 +31,12 @@ class MeanColorMasking(MaskingStrategy):
             for j, is_present in enumerate(coal):
                 if not is_present:
                     mask[i] |= player_masks[j]
-                    
+
         masked_images[mask] = image.mean(axis=(0, 1))
-        
         return masked_images
 
 
-class ZeroMasking(MaskingStrategy):
-    """Imputes the masked pixels with zeros (or a configurable value)."""
-    
+class ZeroMasking(PixelMaskingStrategy):
     def __init__(self, value: float = 0.0):
         self.value = value
     
@@ -55,7 +51,38 @@ class ZeroMasking(MaskingStrategy):
             for j, is_present in enumerate(coal):
                 if not is_present:
                     mask[i] |= player_masks[j]
-                    
+
         masked_images[mask] = self.value
-        
         return masked_images
+
+
+class LatentMaskingStrategy(ABC):
+    """Defines how tokens are masked in latent/embedding space."""
+
+    @abstractmethod
+    def predict_logits(
+        self,
+        model,
+        pixel_values: torch.Tensor,  # (1, 3, H, W)
+        bool_masks: torch.Tensor,    # (B, n_tokens)
+    ) -> torch.Tensor:               # (B, n_classes)
+        ...
+
+
+class BoolMaskedPosStrategy(LatentMaskingStrategy):
+    """Masks tokens via the bool_masked_pos argument in the model forward pass."""
+
+    def predict_logits(self, model, pixel_values, bool_masks):
+        batch = pixel_values.repeat(bool_masks.shape[0], 1, 1, 1)
+        return model(pixel_values=batch, bool_masked_pos=bool_masks).logits
+
+
+class MaskTokenStrategy(LatentMaskingStrategy):
+    """Masks tokens by zeroing the mask_token embedding before the forward pass."""
+
+    def predict_logits(self, model, pixel_values, bool_masks):
+        model.vit.embeddings.mask_token = torch.nn.Parameter(
+            torch.zeros(1, 1, model.config.hidden_size)
+        )
+        batch = pixel_values.repeat(bool_masks.shape[0], 1, 1, 1)
+        return model(pixel_values=batch, bool_masked_pos=bool_masks).logits
