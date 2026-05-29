@@ -60,12 +60,10 @@ class ResNetArchitecture(ModelArchitectureStrategy):
         with torch.no_grad():
             logits = self.model(input_tensor)
             self._class_id = int(logits.argmax(dim=1).item())
-            print("Set class-id to", self._class_id) # TODO
 
     def value_function(self, coalitions: np.ndarray) -> np.ndarray:
         masked = self._masking_strategy.apply(self._image_array, self._player_masks, coalitions)
         input_tensors = torch.stack([self._preprocess_image(img) for img in masked])
-        print("Input tensors shape:", input_tensors.shape) # TODO
         
         with torch.no_grad():
             logits = self.model(input_tensors)
