@@ -95,6 +95,23 @@ class ViTArchitecture(ModelArchitectureStrategy):
         with torch.no_grad():
             logits = self.model(pixel_values=self._pixel_values).logits
         self._class_id = int(logits.argmax(-1).item())
+        self._player_masks = self._build_pixel_masks(image)
+
+    def _build_pixel_masks(self, image: np.ndarray) -> np.ndarray:
+        """Rectangular grid masks of shape (n_players, H, W) for pixel-space visualization."""
+        n = self._player_strategy.n_players
+        H, W = image.shape[:2]
+        side = self._player_strategy.side
+        bh, bw = H // side, W // side
+        masks = np.zeros((n, H, W), dtype=bool)
+        for p in range(n):
+            r, c = divmod(p, side)
+            masks[
+                p,
+                r * bh : (H if r == side - 1 else (r + 1) * bh),
+                c * bw : (W if c == side - 1 else (c + 1) * bw),
+            ] = True
+        return masks
 
     def value_function(self, coalitions: np.ndarray) -> np.ndarray:
         bool_masks = torch.stack(
