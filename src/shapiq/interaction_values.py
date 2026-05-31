@@ -1073,6 +1073,7 @@ class InteractionValues:
         alpha: float = 0.5,
         cmap: Colormap | str | None = None,
         show: bool = True,
+        heatmap_only: bool = True,
     ) -> tuple[Figure, tuple[Axes, Axes]] | None:
         """Visualize first-order attributions as a heatmap overlaid on the original image.
 
@@ -1101,6 +1102,7 @@ class InteractionValues:
             alpha=alpha,
             cmap=cmap,
             show=show,
+            heatmap_only=heatmap_only,
         )
 
 
