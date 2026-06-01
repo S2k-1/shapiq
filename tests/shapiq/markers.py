@@ -7,6 +7,7 @@ import importlib.util
 import pytest
 
 __all__ = [
+    "skip_if_no_jax",
     "skip_if_no_keras",
     "skip_if_no_lightgbm",
     "skip_if_no_tabpfn",
@@ -19,6 +20,11 @@ def is_installed(pkg_name: str) -> bool:
     """Check if a package is installed without importing it."""
     return importlib.util.find_spec(pkg_name) is not None
 
+
+skip_if_no_jax = pytest.mark.skipif(
+    not is_installed("jax"),
+    reason="jax is not installed",
+)
 
 skip_if_no_tabpfn = pytest.mark.skipif(
     not is_installed("tabpfn"),
