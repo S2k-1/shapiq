@@ -1,4 +1,6 @@
-from typing import Any, Literal
+from __future__ import annotations
+
+from typing import Any
 
 import numpy as np
 
@@ -7,62 +9,68 @@ from shapiq.explainer.configuration import setup_approximator
 from shapiq.explainer.custom_types import ExplainerIndices
 from shapiq.game_theory.indices import is_empty_value_the_baseline
 from shapiq.interaction_values import InteractionValues
-from shapiq.typing import Model
 
+from .architecture import ModelArchitectureStrategy
 from .imputer import ImageImputer
 from .players import PlayerStrategy
-from .masking import PixelMaskingStrategy, LatentMaskingStrategy
-from .architecture import ModelArchitectureStrategy
 
 ImageExplainerIndices = ExplainerIndices
 
 
 class ImageExplainer(Explainer):
-    """Explainer for vision models."""
+    """Explainer for vision models. Delegates all model-specific logic to a ModelArchitectureStrategy."""
 
     def __init__(
         self,
-        model: Model,
-        data: np.ndarray,
+        architecture: ModelArchitectureStrategy,
+        data: np.ndarray | None = None,
         *,
         player_strategy: PlayerStrategy | None = None,
-        masking_strategy: PixelMaskingStrategy | LatentMaskingStrategy | None = None,
-        imputer: ImageImputer | None = None,
-        index: ExplainerIndices = "k-SII",
+        masking_strategy=None,
+        index: ImageExplainerIndices = "k-SII",
         max_order: int = 2,
         random_state: int | None = None,
-        model_architecture: ModelArchitectureStrategy | None = None,
-        vit_processor=None,
+        batch_size: int | None = None,
         **kwargs: Any,
     ) -> None:
-        super().__init__(model=model, data=None, index=index, max_order=max_order)
-
-        if isinstance(imputer, ImageImputer):
-            self._imputer = imputer
-        else:
-            self._imputer = ImageImputer(
-                model=model,
-                image=data,
-                player_strategy=player_strategy,
-                masking_strategy=masking_strategy,
-                model_architecture=model_architecture,
-                vit_processor=vit_processor,
+        if data is None:
+            msg = (
+                "ImageExplainer requires the image to explain at construction time. "
+                "Pass it as `data=your_image`."
             )
-            
-        self._n_features: int = self._imputer.n_features
+            raise ValueError(msg)
+
+        super().__init__(model=architecture.model, index=index, max_order=max_order)
+
+        self._imputer = ImageImputer(
+            architecture=architecture,
+            image=data,
+            player_strategy=player_strategy,
+            masking_strategy=masking_strategy,
+            batch_size=batch_size,
+        )
 
         self._approximator = setup_approximator(
             approximator="auto",
             index=index,
             max_order=self.max_order,
-            n_players=self._n_features,
+            n_players=self._imputer.n_players,
             random_state=random_state,
         )
 
-    def explain_function(
-        self, x:np.ndarray | None, *, budget: int = 64
-    ) -> InteractionValues:      
-        interaction_values = self._approximator.approximate(budget=budget, game=self._imputer)
+    def explain_function(self, x: np.ndarray | None, *, budget: int = 64) -> InteractionValues:
+        """Compute interaction values for the image fixed at construction time.
+
+        Args:
+            x: Accepted for API compatibility with the base ``Explainer`` interface but
+                **not used**. The image to explain is the one passed as ``data`` to
+                ``ImageExplainer.__init__``. Passing a different array here has no effect.
+            budget: Number of model evaluations available to the approximator.
+
+        Returns:
+            ``InteractionValues`` for the image supplied at construction.
+        """
+        interaction_values = self.approximator.approximate(budget=budget, game=self.imputer)
         interaction_values.baseline_value = self.baseline_value
         if is_empty_value_the_baseline(interaction_values.index):
             interaction_values[()] = interaction_values.baseline_value
@@ -70,4 +78,4 @@ class ImageExplainer(Explainer):
 
     @property
     def baseline_value(self) -> float:
-        return self._imputer.empty_prediction
+        return self.imputer.empty_prediction
