@@ -1,11 +1,12 @@
+"""Architecture strategies for vision model explanation."""
+
 from __future__ import annotations
 
 import math
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import numpy as np
-import torch
 
 from .masking import (
     BoolMaskedPosStrategy,
@@ -25,14 +26,20 @@ from .players import (
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+    import torch
+
+    from shapiq.typing import Model
+
 
 def _extract_hf_features(output: torch.Tensor | object) -> torch.Tensor:
     """Return the feature tensor from a HuggingFace model output or a plain tensor.
 
-    Transformers ≥ 5.x changed several ``get_*_features`` methods to return a
+    Transformers >= 5.x changed several ``get_*_features`` methods to return a
     ``BaseModelOutputWithPooling`` instead of a bare tensor.  This helper handles
     both shapes so callers don't have to repeat the same isinstance/hasattr chain.
     """
+    import torch
+
     if isinstance(output, torch.Tensor):
         return output
     if hasattr(output, "pooler_output") and output.pooler_output is not None:
@@ -44,13 +51,17 @@ class ModelArchitectureStrategy(ABC):
     """Encapsulates model-specific inference logic, decoupling it from ImageImputer."""
 
     #: The underlying model callable. Must be set by every concrete subclass.
-    model: Any
+    model: Model
 
     @abstractmethod
-    def default_player_strategy(self) -> PlayerStrategy: ...
+    def default_player_strategy(self) -> PlayerStrategy:
+        """Return the default player strategy for this architecture."""
+        ...
 
     @abstractmethod
-    def default_masking_strategy(self) -> PixelMaskingStrategy | LatentMaskingStrategy: ...
+    def default_masking_strategy(self) -> PixelMaskingStrategy | LatentMaskingStrategy:
+        """Return the default masking strategy for this architecture."""
+        ...
 
     @abstractmethod
     def prepare(self, image: np.ndarray, player_strategy: PlayerStrategy) -> None:
@@ -68,12 +79,12 @@ class ModelArchitectureStrategy(ABC):
         ...
 
     @property
-    def masking_strategy(self):
+    def masking_strategy(self) -> PixelMaskingStrategy | LatentMaskingStrategy:
         """The active masking strategy. Settable to swap strategies after construction."""
         return self._masking_strategy
 
     @masking_strategy.setter
-    def masking_strategy(self, value) -> None:
+    def masking_strategy(self, value: PixelMaskingStrategy | LatentMaskingStrategy) -> None:
         self._masking_strategy = value
 
     @property
@@ -88,25 +99,36 @@ class ModelArchitectureStrategy(ABC):
 class ResNetArchitecture(ModelArchitectureStrategy):
     """Architecture strategy for CNN models (e.g. ResNet) using pixel-space masking."""
 
-    def __init__(self, model, masking_strategy: PixelMaskingStrategy | None = None):
+    def __init__(self, model: Model, masking_strategy: PixelMaskingStrategy | None = None) -> None:
+        """Initialize the ResNetArchitecture.
+
+        Args:
+            model: A CNN model callable (e.g. a ResNet from torchvision).
+            masking_strategy: Pixel-space masking strategy. Defaults to ``MeanColorMasking``.
+        """
         self.model = model
         self._masking_strategy = masking_strategy or self.default_masking_strategy()
         self._player_masks: np.ndarray | None = None
 
     def default_player_strategy(self) -> SuperpixelStrategy:
+        """Return the default superpixel player strategy."""
         return SuperpixelStrategy(n_segments=10)
 
     def default_masking_strategy(self) -> MeanColorMasking:
+        """Return the default mean-color masking strategy."""
         return MeanColorMasking()
 
     def prepare(self, image: np.ndarray, player_strategy: PixelPlayerStrategy) -> None:
+        """Precompute player masks for the given image."""
         self._player_masks = player_strategy.get_masks(image)
 
     def value_function(self, image: np.ndarray, coalitions: np.ndarray) -> np.ndarray:
+        """Apply pixel masking and return model predictions for each coalition."""
         masked = self._masking_strategy.apply(image, self._player_masks, coalitions)
         return np.asarray(self.model(masked)).reshape(-1)
 
     def calc_empty_prediction(self, image: np.ndarray) -> float:
+        """Return the model prediction for the empty coalition."""
         n = self._player_masks.shape[0]
         empty_image = self._masking_strategy.apply(
             image, self._player_masks, np.zeros((1, n), dtype=bool)
@@ -117,7 +139,19 @@ class ResNetArchitecture(ModelArchitectureStrategy):
 class ViTArchitecture(ModelArchitectureStrategy):
     """Architecture strategy for Vision Transformer models using latent-space masking."""
 
-    def __init__(self, model, processor, masking_strategy: LatentMaskingStrategy | None = None):
+    def __init__(
+        self,
+        model: Model,
+        processor: object,
+        masking_strategy: LatentMaskingStrategy | None = None,
+    ) -> None:
+        """Initialize the ViTArchitecture.
+
+        Args:
+            model: A HuggingFace ``ViTForImageClassification`` model.
+            processor: A HuggingFace image processor (e.g. ``ViTImageProcessor``).
+            masking_strategy: Latent-space masking strategy. Defaults to ``MaskTokenStrategy``.
+        """
         self.model = model
         self.processor = processor
         self._masking_strategy = masking_strategy or self.default_masking_strategy()
@@ -126,14 +160,19 @@ class ViTArchitecture(ModelArchitectureStrategy):
         self._player_strategy_ref: LatentPlayerStrategy | None = None
 
     def default_player_strategy(self) -> PatchStrategy:
+        """Return the default patch player strategy derived from the model config."""
         grid_size = self.model.config.image_size // self.model.config.patch_size
         return PatchStrategy(grid_size=grid_size, n_players=9)
 
     def default_masking_strategy(self) -> MaskTokenStrategy:
+        """Return the default mask-token masking strategy."""
         # ViTForImageClassification has mask_token=None by default; MaskTokenStrategy initialises it
         return MaskTokenStrategy()
 
     def prepare(self, image: np.ndarray, player_strategy: LatentPlayerStrategy) -> None:
+        """Pre-process the image and cache pixel values and the predicted class."""
+        import torch
+
         self._player_strategy_ref = player_strategy
         inputs = self.processor(images=image, return_tensors="pt")
         self._pixel_values = inputs["pixel_values"]
@@ -141,7 +180,10 @@ class ViTArchitecture(ModelArchitectureStrategy):
             logits = self.model(pixel_values=self._pixel_values).logits
         self._class_id = int(logits.argmax(-1).item())
 
-    def value_function(self, image: np.ndarray, coalitions: np.ndarray) -> np.ndarray:
+    def value_function(self, _image: np.ndarray, coalitions: np.ndarray) -> np.ndarray:
+        """Apply latent masking and return class probabilities for each coalition."""
+        import torch
+
         if coalitions.ndim == 1:
             coalitions = coalitions.reshape(1, -1)
         bool_masks = torch.stack([self._player_strategy_ref.get_latent_mask(c) for c in coalitions])
@@ -153,6 +195,7 @@ class ViTArchitecture(ModelArchitectureStrategy):
         return probs[:, self._class_id].cpu().numpy()
 
     def calc_empty_prediction(self, image: np.ndarray) -> float:
+        """Return the model prediction for the empty coalition."""
         n = self._player_strategy_ref.n_players
         return float(self.value_function(image, np.zeros((1, n), dtype=bool))[0])
 
@@ -177,11 +220,19 @@ class HuggingFacePixelArchitecture(ModelArchitectureStrategy):
 
     def __init__(
         self,
-        model,
-        processor,
+        model: Model,
+        processor: object,
         class_id: int | None = None,
         masking_strategy: PixelMaskingStrategy | None = None,
-    ):
+    ) -> None:
+        """Initialize the HuggingFacePixelArchitecture.
+
+        Args:
+            model: A HuggingFace model returning an output with ``.logits``.
+            processor: A HuggingFace image processor.
+            class_id: Class index to score; auto-detected from first ``prepare`` call if ``None``.
+            masking_strategy: Pixel-space masking strategy. Defaults to ``MeanColorMasking``.
+        """
         self.model = model
         self.processor = processor
         self.class_id = class_id
@@ -189,12 +240,17 @@ class HuggingFacePixelArchitecture(ModelArchitectureStrategy):
         self._player_masks: np.ndarray | None = None
 
     def default_player_strategy(self) -> SuperpixelStrategy:
+        """Return the default superpixel player strategy."""
         return SuperpixelStrategy(n_segments=10)
 
     def default_masking_strategy(self) -> MeanColorMasking:
+        """Return the default mean-color masking strategy."""
         return MeanColorMasking()
 
     def prepare(self, image: np.ndarray, player_strategy: PixelPlayerStrategy) -> None:
+        """Precompute player masks and auto-detect class ID if not set."""
+        import torch
+
         self._player_masks = player_strategy.get_masks(image)
         if self.class_id is None:
             inputs = self.processor(images=image, return_tensors="pt")
@@ -203,8 +259,8 @@ class HuggingFacePixelArchitecture(ModelArchitectureStrategy):
             self.class_id = int(logits.argmax(-1).item())
 
     def _predict_batch(self, batch: np.ndarray) -> np.ndarray:
-        # batch is (B, H, W, C)
-        # HF processors accept lists of arrays / PILs.
+        import torch
+
         inputs = self.processor(images=[np.asarray(img) for img in batch], return_tensors="pt")
         with torch.no_grad():
             logits = self.model(**inputs).logits
@@ -212,10 +268,12 @@ class HuggingFacePixelArchitecture(ModelArchitectureStrategy):
         return probs[:, self.class_id].cpu().numpy()
 
     def value_function(self, image: np.ndarray, coalitions: np.ndarray) -> np.ndarray:
+        """Apply pixel masking and return class probabilities for each coalition."""
         masked = self._masking_strategy.apply(image, self._player_masks, coalitions)
         return self._predict_batch(masked)
 
     def calc_empty_prediction(self, image: np.ndarray) -> float:
+        """Return the model prediction for the empty coalition."""
         n = self._player_masks.shape[0]
         return float(self.value_function(image, np.zeros((1, n), dtype=bool))[0])
 
@@ -238,6 +296,7 @@ class DINOv2Architecture(ModelArchitectureStrategy):
     reference embedding is computed once in ``prepare``.
 
     Works with any backbone whose forward pass returns one of:
+
     - ``.pooler_output``
     - ``.last_hidden_state`` (the CLS token at index 0 is used)
     - a tensor directly
@@ -251,10 +310,17 @@ class DINOv2Architecture(ModelArchitectureStrategy):
 
     def __init__(
         self,
-        model,
-        processor,
+        model: Model,
+        processor: object,
         masking_strategy: PixelMaskingStrategy | None = None,
-    ):
+    ) -> None:
+        """Initialize the DINOv2Architecture.
+
+        Args:
+            model: A backbone model callable.
+            processor: A HuggingFace image processor.
+            masking_strategy: Pixel-space masking strategy. Defaults to ``MeanColorMasking``.
+        """
         self.model = model
         self.processor = processor
         self._masking_strategy = masking_strategy or self.default_masking_strategy()
@@ -262,12 +328,16 @@ class DINOv2Architecture(ModelArchitectureStrategy):
         self._reference_embedding: torch.Tensor | None = None
 
     def default_player_strategy(self) -> SuperpixelStrategy:
+        """Return the default superpixel player strategy."""
         return SuperpixelStrategy(n_segments=10)
 
     def default_masking_strategy(self) -> MeanColorMasking:
+        """Return the default mean-color masking strategy."""
         return MeanColorMasking()
 
     def _embed(self, batch: np.ndarray) -> torch.Tensor:
+        import torch
+
         inputs = self.processor(images=[np.asarray(img) for img in batch], return_tensors="pt")
         with torch.no_grad():
             out = self.model(**inputs)
@@ -280,16 +350,19 @@ class DINOv2Architecture(ModelArchitectureStrategy):
         return emb / emb.norm(dim=-1, keepdim=True)
 
     def prepare(self, image: np.ndarray, player_strategy: PixelPlayerStrategy) -> None:
+        """Precompute player masks and reference embedding for the image."""
         self._player_masks = player_strategy.get_masks(image)
         self._reference_embedding = self._embed(image[np.newaxis])[0]
 
     def value_function(self, image: np.ndarray, coalitions: np.ndarray) -> np.ndarray:
+        """Apply pixel masking and return cosine similarity scores for each coalition."""
         masked = self._masking_strategy.apply(image, self._player_masks, coalitions)
         emb = self._embed(masked)
         sims = emb @ self._reference_embedding
         return sims.cpu().numpy()
 
     def calc_empty_prediction(self, image: np.ndarray) -> float:
+        """Return the model prediction for the empty coalition."""
         n = self._player_masks.shape[0]
         return float(self.value_function(image, np.zeros((1, n), dtype=bool))[0])
 
@@ -313,12 +386,22 @@ class CLIPArchitecture(ModelArchitectureStrategy):
 
     def __init__(
         self,
-        model,
-        processor,
+        model: Model,
+        processor: object,
         text_prompts: Sequence[str],
         target_prompt_idx: int = 0,
         masking_strategy: PixelMaskingStrategy | None = None,
-    ):
+    ) -> None:
+        """Initialize the CLIPArchitecture.
+
+        Args:
+            model: A CLIP model with ``get_image_features``, ``get_text_features``, and
+                ``logit_scale``.
+            processor: A HF CLIP processor.
+            text_prompts: List of text prompts to compare against.
+            target_prompt_idx: Index of the target prompt to score.
+            masking_strategy: Pixel-space masking strategy. Defaults to ``MeanColorMasking``.
+        """
         self.model = model
         self.processor = processor
         self.text_prompts = list(text_prompts)
@@ -328,12 +411,17 @@ class CLIPArchitecture(ModelArchitectureStrategy):
         self._text_features: torch.Tensor | None = None
 
     def default_player_strategy(self) -> SuperpixelStrategy:
+        """Return the default superpixel player strategy."""
         return SuperpixelStrategy(n_segments=10)
 
     def default_masking_strategy(self) -> MeanColorMasking:
+        """Return the default mean-color masking strategy."""
         return MeanColorMasking()
 
     def prepare(self, image: np.ndarray, player_strategy: PixelPlayerStrategy) -> None:
+        """Precompute player masks and text features for the configured prompts."""
+        import torch
+
         self._player_masks = player_strategy.get_masks(image)
         text_inputs = self.processor(text=self.text_prompts, return_tensors="pt", padding=True)
         with torch.no_grad():
@@ -341,6 +429,9 @@ class CLIPArchitecture(ModelArchitectureStrategy):
             self._text_features = torch.nn.functional.normalize(tf, dim=-1)
 
     def value_function(self, image: np.ndarray, coalitions: np.ndarray) -> np.ndarray:
+        """Apply pixel masking and return CLIP similarity scores for each coalition."""
+        import torch
+
         masked = self._masking_strategy.apply(image, self._player_masks, coalitions)
         image_inputs = self.processor(
             images=[np.asarray(img) for img in masked], return_tensors="pt"
@@ -355,6 +446,7 @@ class CLIPArchitecture(ModelArchitectureStrategy):
         return probs[:, self.target_prompt_idx].cpu().numpy()
 
     def calc_empty_prediction(self, image: np.ndarray) -> float:
+        """Return the model prediction for the empty coalition."""
         n = self._player_masks.shape[0]
         return float(self.value_function(image, np.zeros((1, n), dtype=bool))[0])
 
@@ -378,12 +470,22 @@ class CustomViTArchitecture(ModelArchitectureStrategy):
 
     def __init__(
         self,
-        model,
+        model: Model,
         pixel_values: torch.Tensor,
         class_id: int,
         n_tokens: int,
         masking_strategy: LatentMaskingStrategy | None = None,
-    ):
+    ) -> None:
+        """Initialize the CustomViTArchitecture.
+
+        Args:
+            model: A ViT-like model callable.
+            pixel_values: Pre-processed ``(1, C, H, W)`` tensor.
+            class_id: The class index to score.
+            n_tokens: Number of patch tokens.
+            masking_strategy: Latent-space masking strategy. Defaults to
+                ``BoolMaskedPosStrategy``.
+        """
         self.model = model
         self._pixel_values = pixel_values
         self.class_id = class_id
@@ -392,6 +494,7 @@ class CustomViTArchitecture(ModelArchitectureStrategy):
         self._player_strategy_ref: LatentPlayerStrategy | None = None
 
     def default_player_strategy(self) -> PatchStrategy:
+        """Return a PatchStrategy derived from the number of tokens."""
         side = int(math.sqrt(self.n_tokens))
         if side * side != self.n_tokens:
             msg = (
@@ -402,12 +505,17 @@ class CustomViTArchitecture(ModelArchitectureStrategy):
         return PatchStrategy(grid_size=side, n_players=side * side)
 
     def default_masking_strategy(self) -> BoolMaskedPosStrategy:
+        """Return the default bool-masked-pos masking strategy."""
         return BoolMaskedPosStrategy()
 
     def prepare(self, image: np.ndarray, player_strategy: LatentPlayerStrategy) -> None:
+        """Cache the player strategy reference (pixel values are pre-supplied at construction)."""
         self._player_strategy_ref = player_strategy
 
-    def value_function(self, image: np.ndarray, coalitions: np.ndarray) -> np.ndarray:
+    def value_function(self, _image: np.ndarray, coalitions: np.ndarray) -> np.ndarray:
+        """Apply latent masking and return class probabilities for each coalition."""
+        import torch
+
         if coalitions.ndim == 1:
             coalitions = coalitions.reshape(1, -1)
         bool_masks = torch.stack([self._player_strategy_ref.get_latent_mask(c) for c in coalitions])
@@ -419,5 +527,6 @@ class CustomViTArchitecture(ModelArchitectureStrategy):
         return probs[:, self.class_id].cpu().numpy()
 
     def calc_empty_prediction(self, image: np.ndarray) -> float:
+        """Return the model prediction for the empty coalition."""
         n = self._player_strategy_ref.n_players
         return float(self.value_function(image, np.zeros((1, n), dtype=bool))[0])

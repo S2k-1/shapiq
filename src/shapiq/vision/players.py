@@ -1,11 +1,16 @@
+"""Player strategies for vision-based explanations."""
+
 from __future__ import annotations
 
 import math
 import warnings
 from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING
 
 import numpy as np
-import torch
+
+if TYPE_CHECKING:
+    import torch
 
 
 class PlayerStrategy(ABC):
@@ -13,7 +18,9 @@ class PlayerStrategy(ABC):
 
     @property
     @abstractmethod
-    def n_players(self) -> int: ...
+    def n_players(self) -> int:
+        """Return the number of players (regions) in the strategy."""
+        ...
 
 
 class PixelPlayerStrategy(PlayerStrategy, ABC):
@@ -37,17 +44,27 @@ class LatentPlayerStrategy(PlayerStrategy, ABC):
 class PatchStrategy(LatentPlayerStrategy):
     """Splits the image into patches for ViT models.
 
-    Groups the ``grid_size × grid_size`` token grid into ``n_players`` macro-regions
-    arranged in a ``sqrt(n_players) × sqrt(n_players)`` layout. Region boundaries are
+    Groups the ``grid_size x grid_size`` token grid into ``n_players`` macro-regions
+    arranged in a ``sqrt(n_players) x sqrt(n_players)`` layout. Region boundaries are
     computed via integer division so the macro-regions tile the full grid even when
     ``grid_size`` is not evenly divisible by ``sqrt(n_players)`` (e.g. ViT-B/16 with
     ``grid_size=14`` and ``n_players=9``).
     """
 
-    def __init__(self, grid_size: int, n_players: int):
+    def __init__(self, grid_size: int, n_players: int) -> None:
+        """Initialize the PatchStrategy.
+
+        Args:
+            grid_size: Number of tokens along each side of the full token grid.
+            n_players: Number of macro-regions. Must be a perfect square.
+
+        Raises:
+            ValueError: If ``n_players`` is not a perfect square.
+        """
         side = int(math.sqrt(n_players))
         if side * side != n_players:
-            raise ValueError("n_players must be a perfect square.")
+            msg = "n_players must be a perfect square."
+            raise ValueError(msg)
         self.grid_size = grid_size
         #: Number of token-grid cells along each side of a macro-region.
         self.patch_size = grid_size // side
@@ -55,6 +72,9 @@ class PatchStrategy(LatentPlayerStrategy):
         self._n_players = n_players
 
     def get_latent_mask(self, coalition: np.ndarray) -> torch.Tensor:
+        """Return a ``(grid_size^2,)`` bool mask; True = token masked (absent)."""
+        import torch  # lazy: only ViT/latent users pay this cost
+
         # True = masked (absent), False = visible (present); shape (grid_size^2,)
         mask_2d = torch.ones((self.grid_size, self.grid_size), dtype=torch.bool)
         for player, is_present in enumerate(coalition):
@@ -70,13 +90,64 @@ class PatchStrategy(LatentPlayerStrategy):
 
     @property
     def n_players(self) -> int:
+        """Return the number of macro-region players."""
         return self._n_players
+
+
+class CustomMasksStrategy(PixelPlayerStrategy):
+    """Uses a set of pre-computed binary masks as players.
+
+    Lets users define completely arbitrary regions rather than relying on SLIC or
+    a fixed grid.  Each mask is a boolean ``(H, W)`` array where ``True`` marks
+    the pixels belonging to that player.
+
+    Masks may overlap; pixels not covered by any mask are treated as always absent
+    regardless of coalition membership.
+
+    Args:
+        masks: Array of shape ``(n_players, H, W)``.  Any dtype is accepted and
+            will be cast to ``bool``.
+
+    Example::
+
+        masks = np.zeros((3, 224, 224), dtype=bool)
+        masks[0, :112, :] = True    # top half
+        masks[1, 112:, :] = True    # bottom half
+        masks[2, :, 100:124] = True  # centre column (overlaps both)
+        strategy = CustomMasksStrategy(masks)
+    """
+
+    def __init__(self, masks: np.ndarray) -> None:
+        """Initialize the CustomMasksStrategy.
+
+        Args:
+            masks: Array of shape ``(n_players, H, W)`` defining player regions.
+
+        Raises:
+            ValueError: If ``masks`` is not a 3-D array.
+        """
+        if np.asarray(masks).ndim != 3:
+            msg = (
+                f"masks must be a 3-D array of shape (n_players, H, W), "
+                f"got shape {np.asarray(masks).shape}."
+            )
+            raise ValueError(msg)
+        self._masks = np.asarray(masks, dtype=bool)
+
+    def get_masks(self, _image: np.ndarray) -> np.ndarray:
+        """Return the pre-computed masks (image argument is ignored)."""
+        return self._masks
+
+    @property
+    def n_players(self) -> int:
+        """Return the number of pre-computed player masks."""
+        return self._masks.shape[0]
 
 
 class GridStrategy(PixelPlayerStrategy):
     """Splits the image into a regular rectangular grid without any external dependencies.
 
-    Divides the image into ``rows × cols`` non-overlapping tiles.  Tiles are sized
+    Divides the image into ``rows x cols`` non-overlapping tiles.  Tiles are sized
     via integer division, so the rightmost column and bottom row absorb any remainder
     pixels when the image dimensions are not evenly divisible.
 
@@ -92,7 +163,13 @@ class GridStrategy(PixelPlayerStrategy):
         strategy = GridStrategy(rows=3, cols=3)  # 9 players
     """
 
-    def __init__(self, rows: int, cols: int | None = None):
+    def __init__(self, rows: int, cols: int | None = None) -> None:
+        """Initialize the GridStrategy.
+
+        Args:
+            rows: Number of tile rows.
+            cols: Number of tile columns. Defaults to ``rows``.
+        """
         self.rows = rows
         self.cols = cols if cols is not None else rows
 
@@ -113,13 +190,19 @@ class GridStrategy(PixelPlayerStrategy):
 
     @property
     def n_players(self) -> int:
+        """Return the number of grid tiles."""
         return self.rows * self.cols
 
 
 class SuperpixelStrategy(PixelPlayerStrategy):
     """Splits the image into superpixels using SLIC."""
 
-    def __init__(self, n_segments: int = 10):
+    def __init__(self, n_segments: int = 10) -> None:
+        """Initialize the SuperpixelStrategy.
+
+        Args:
+            n_segments: Target number of superpixel segments (players).
+        """
         self.n_segments = n_segments
 
     def get_masks(self, image: np.ndarray) -> np.ndarray:
@@ -161,9 +244,9 @@ class SuperpixelStrategy(PixelPlayerStrategy):
             self.n_segments = n_superpixels
 
         players = np.arange(1, self.n_segments + 1).reshape(-1, 1, 1)
-        masks = superpixels == players  # (n_players, H, W)
-        return masks
+        return superpixels == players
 
     @property
     def n_players(self) -> int:
+        """Return the number of superpixel segments."""
         return self.n_segments

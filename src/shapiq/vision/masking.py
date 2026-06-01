@@ -1,78 +1,136 @@
+"""Masking strategies for vision-based explanations."""
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING
 
 import numpy as np
-import torch
+
+if TYPE_CHECKING:
+    import torch
+
+    from shapiq.typing import Model
 
 
 class PixelMaskingStrategy(ABC):
+    """Abstract base class for pixel-space masking strategies."""
+
     @abstractmethod
     def apply(
         self, image: np.ndarray, player_masks: np.ndarray, coalition: np.ndarray
     ) -> np.ndarray:
-        """Args:
-            image:        (H, W, C) original image
-            player_masks: (n_players, H, W) boolean masks per player
-            coalition:    (n_coalitions, n_players) boolean array
+        """Apply the masking strategy to a batch of coalitions.
+
+        Args:
+            image:        ``(H, W, C)`` original image.
+            player_masks: ``(n_players, H, W)`` boolean masks per player.
+            coalition:    ``(n_coalitions, n_players)`` boolean array; ``True`` = player present.
 
         Returns:
-            masked_images: (n_coalitions, H, W, C)
+            masked_images: ``(n_coalitions, H, W, C)`` array of masked images.
         """
         ...
 
 
-def _apply_pixel_masking(
-    image: np.ndarray,
-    player_masks: np.ndarray,
-    coalition: np.ndarray,
-    fill: float | np.ndarray,
-) -> np.ndarray:
-    """Build masked images by replacing absent-player pixels with *fill*.
-
-    Args:
-        image:        (H, W, C) original image.
-        player_masks: (n_players, H, W) boolean masks per player.
-        coalition:    (n_coalitions, n_players) boolean array; True = player present.
-        fill:         Scalar or (C,) array used as the replacement value.
-
-    Returns:
-        masked_images: (n_coalitions, H, W, C)
-    """
-    n_coalitions, n_players = coalition.shape
-    H, W, _ = image.shape
-
-    masked_images = np.stack([image] * n_coalitions, axis=0)
-
-    # For each coalition, a pixel is absent if at least one absent player covers it.
-    # This reduces to a matrix product: absent @ flat_masks > 0.
-    absent = (~coalition).view(np.uint8)  # (n_coalitions, n_players)
-    flat_masks = player_masks.reshape(n_players, H * W).view(np.uint8)  # (n_players, H*W)
-    absent_mask = (absent @ flat_masks).reshape(n_coalitions, H, W).astype(bool)
-
-    masked_images[absent_mask] = fill
-    return masked_images
-
-
 class MeanColorMasking(PixelMaskingStrategy):
-    """Imputes the masked pixels with the mean color of the entire image."""
+    """Imputes absent players' regions with the mean color of the entire image."""
 
     def apply(
         self, image: np.ndarray, player_masks: np.ndarray, coalition: np.ndarray
     ) -> np.ndarray:
-        return _apply_pixel_masking(image, player_masks, coalition, image.mean(axis=(0, 1)))
+        """Apply mean-color masking to a batch of coalitions."""
+        n_coalitions = coalition.shape[0]
+        H, W, _ = image.shape
+
+        masked_images = np.stack([image] * n_coalitions, axis=0)
+
+        mask = np.zeros((n_coalitions, H, W), dtype=bool)
+        for i, coal in enumerate(coalition):
+            for j, is_present in enumerate(coal):
+                if not is_present:
+                    mask[i] |= player_masks[j]
+
+        masked_images[mask] = image.mean(axis=(0, 1))
+        return masked_images
 
 
 class ZeroMasking(PixelMaskingStrategy):
-    """Imputes masked pixels with a constant value (default: black / 0.0)."""
+    """Imputes absent players' regions with a constant fill value (default: ``0.0``)."""
 
-    def __init__(self, value: float = 0.0):
+    def __init__(self, value: float = 0.0) -> None:
+        """Initialize the ZeroMasking strategy.
+
+        Args:
+            value: Fill value for absent regions. Defaults to ``0.0``.
+        """
         self.value = value
 
     def apply(
         self, image: np.ndarray, player_masks: np.ndarray, coalition: np.ndarray
     ) -> np.ndarray:
-        return _apply_pixel_masking(image, player_masks, coalition, self.value)
+        """Apply constant-value masking to a batch of coalitions."""
+        n_coalitions = coalition.shape[0]
+        H, W, _ = image.shape
+
+        masked_images = np.stack([image] * n_coalitions, axis=0)
+
+        mask = np.zeros((n_coalitions, H, W), dtype=bool)
+        for i, coal in enumerate(coalition):
+            for j, is_present in enumerate(coal):
+                if not is_present:
+                    mask[i] |= player_masks[j]
+
+        masked_images[mask] = self.value
+        return masked_images
+
+
+class BlurMasking(PixelMaskingStrategy):
+    """Imputes absent players' regions with a Gaussian-blurred version of the image.
+
+    Absent regions are replaced with pixels drawn from a Gaussian-blurred copy
+    of the original image.  This provides a smooth, natural-looking baseline
+    that retains global color statistics while removing fine-grained spatial
+    detail from hidden regions — useful when the model is sensitive to hard
+    color discontinuities at region boundaries.
+
+    Args:
+        sigma: Standard deviation of the Gaussian kernel in pixels.
+            Defaults to ``10.0``.
+
+    Example::
+
+        masking = BlurMasking(sigma=8)
+        imputer = ImageImputer(arch, image, masking_strategy=masking)
+    """
+
+    def __init__(self, sigma: float = 10.0) -> None:
+        """Initialize the BlurMasking strategy.
+
+        Args:
+            sigma: Standard deviation of the Gaussian kernel in pixels.
+        """
+        self.sigma = sigma
+
+    def apply(
+        self, image: np.ndarray, player_masks: np.ndarray, coalition: np.ndarray
+    ) -> np.ndarray:
+        """Apply Gaussian-blur masking to a batch of coalitions."""
+        from scipy.ndimage import gaussian_filter
+
+        blurred = gaussian_filter(image, sigma=[self.sigma, self.sigma, 0])
+        n_coalitions = coalition.shape[0]
+        H, W, _ = image.shape
+
+        masked_images = np.stack([image] * n_coalitions, axis=0)
+
+        absence_mask = np.zeros((n_coalitions, H, W), dtype=bool)
+        for i, coal in enumerate(coalition):
+            for j, is_present in enumerate(coal):
+                if not is_present:
+                    absence_mask[i] |= player_masks[j]
+
+        return np.where(absence_mask[..., np.newaxis], blurred[np.newaxis], masked_images)
 
 
 class LatentMaskingStrategy(ABC):
@@ -81,50 +139,57 @@ class LatentMaskingStrategy(ABC):
     @abstractmethod
     def predict_logits(
         self,
-        model,
-        pixel_values: torch.Tensor,  # (1, 3, H, W)
-        bool_masks: torch.Tensor,  # (B, n_tokens)
-    ) -> torch.Tensor:  # (B, n_classes)
+        model: Model,
+        pixel_values: torch.Tensor,
+        bool_masks: torch.Tensor,
+    ) -> torch.Tensor:
+        """Run the model with masked tokens and return logits.
+
+        Args:
+            model: The vision model.
+            pixel_values: ``(1, C, H, W)`` pre-processed image tensor.
+            bool_masks: ``(B, n_tokens)`` boolean mask; ``True`` = token masked (absent).
+
+        Returns:
+            Logit tensor of shape ``(B, n_classes)``.
+        """
         ...
 
 
-def _ensure_vit_mask_token(model, device: torch.device) -> None:
-    """Initialize mask_token to zeros when it is None.
-
-    ``ViTForImageClassification`` stores ``mask_token = None`` in its
-    embeddings module because it was not pretrained with masked-image
-    modelling. Both latent masking strategies pass ``bool_masked_pos`` to the
-    model's forward pass, which unconditionally calls
-    ``self.mask_token.expand(...)`` inside ``ViTEmbeddings.forward``. Without
-    this guard that line crashes with an ``AttributeError``.
-    """
-    if not (hasattr(model, "vit") and hasattr(model.vit, "embeddings")):
-        return
-    emb = model.vit.embeddings
-    if getattr(emb, "mask_token", None) is None:
-        emb.mask_token = torch.nn.Parameter(
-            torch.zeros(1, 1, model.config.hidden_size, device=device)
-        )
-
-
 class BoolMaskedPosStrategy(LatentMaskingStrategy):
-    """Masks tokens via the bool_masked_pos argument in the model forward pass."""
+    """Masks tokens via the ``bool_masked_pos`` argument in the model forward pass."""
 
-    def predict_logits(self, model, pixel_values, bool_masks):
-        _ensure_vit_mask_token(model, pixel_values.device)
+    def predict_logits(
+        self,
+        model: Model,
+        pixel_values: torch.Tensor,
+        bool_masks: torch.Tensor,
+    ) -> torch.Tensor:
+        """Run the model with ``bool_masked_pos`` masking and return logits."""
         batch = pixel_values.repeat(bool_masks.shape[0], 1, 1, 1)
         return model(pixel_values=batch, bool_masked_pos=bool_masks).logits
 
 
 class MaskTokenStrategy(LatentMaskingStrategy):
-    """Masks tokens by zeroing the mask_token embedding before the forward pass."""
+    """Masks tokens by zeroing the ``mask_token`` embedding before the forward pass.
 
-    def predict_logits(self, model, pixel_values, bool_masks):
-        # Ensure mask_token exists (ViTForImageClassification leaves it None by default),
-        # then zero it in-place so absent patches carry no signal.  Re-creating the
-        # nn.Parameter on every call would replace the model's parameter dict entry.
-        _ensure_vit_mask_token(model, pixel_values.device)
-        if hasattr(model, "vit") and hasattr(model.vit, "embeddings"):
-            model.vit.embeddings.mask_token.data.zero_()
+    Initialises ``model.vit.embeddings.mask_token`` to a zero vector so that
+    masked patches contribute nothing to the CLS representation.  Works with
+    HuggingFace ``ViTForImageClassification`` checkpoints where the mask token
+    is not pre-initialised.
+    """
+
+    def predict_logits(
+        self,
+        model: Model,
+        pixel_values: torch.Tensor,
+        bool_masks: torch.Tensor,
+    ) -> torch.Tensor:
+        """Run the model with zero mask-token masking and return logits."""
+        import torch
+
+        model.vit.embeddings.mask_token = torch.nn.Parameter(
+            torch.zeros(1, 1, model.config.hidden_size)
+        )
         batch = pixel_values.repeat(bool_masks.shape[0], 1, 1, 1)
         return model(pixel_values=batch, bool_masked_pos=bool_masks).logits

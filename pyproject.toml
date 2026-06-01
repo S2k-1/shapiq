@@ -200,6 +200,27 @@ exclude = [
     "BLE001",  # scripts can have bare excepts
     "TRY"
 ]
+"src/shapiq/vision/prototypes/**" = [
+    "ALL",  # prototype notebooks are development scratch, not production code
+]
+"src/shapiq/vision/tutorials/**" = [
+    "T20",     # tutorials can have print statements
+    "D",       # docstrings not required in tutorial code
+    "ANN",     # type annotations not required in tutorials
+    "NPY",     # legacy numpy APIs acceptable in tutorials
+    "RUF001",  # unicode characters acceptable in tutorial strings
+    "RUF002",  # unicode characters acceptable in tutorial docstrings
+    "RUF003",  # unicode characters acceptable in tutorial comments
+    "N816",    # mixed-case variable names acceptable in tutorials
+    "ARG",     # unused arguments acceptable in tutorials
+    "INP",     # tutorials may not have __init__.py
+    "S101",    # asserts acceptable in tutorials
+]
+"src/shapiq/vision/vision_package_test.ipynb" = [
+    "ERA001",  # test notebook can have commented-out code
+    "S113",    # requests without timeout acceptable in test notebook
+    "T201",    # print statements acceptable in test notebook
+]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
@@ -249,6 +270,12 @@ all_ml = [
     "scikit-image",
     "tensorflow; python_version < '3.13' and platform_system != 'Windows'", # only up to py 3.12
     "tf-keras; python_version < '3.13' and platform_system != 'Windows'",   # only up to py 3.12
+]
+# jax is optional: install with `uv sync --group jax` to run JAX-specific vision tests.
+# Tests guarded by skip_if_no_jax are skipped automatically when jax is absent.
+jax = [
+    "jax",
+    "flax",
 ]
 test = [
     "pytest>=9.0.2",        # for running tests

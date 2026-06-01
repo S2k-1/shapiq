@@ -12,6 +12,7 @@ from .architecture import (
 )
 from .imputer import ImageImputer
 from .masking import (
+    BlurMasking,
     BoolMaskedPosStrategy,
     LatentMaskingStrategy,
     MaskTokenStrategy,
@@ -20,6 +21,7 @@ from .masking import (
     ZeroMasking,
 )
 from .players import (
+    CustomMasksStrategy,
     GridStrategy,
     LatentPlayerStrategy,
     PatchStrategy,
@@ -29,8 +31,6 @@ from .players import (
 )
 
 __all__ = [
-    # Explainer (lazy-imported via __getattr__ to avoid circular imports)
-    "ImageExplainer",
     # Architecture
     "ModelArchitectureStrategy",
     "ResNetArchitecture",
@@ -40,6 +40,8 @@ __all__ = [
     "DINOv2Architecture",
     "CLIPArchitecture",
     "CustomViTArchitecture",
+    # Explainer
+    "ImageExplainer",
     # Imputer
     "ImageImputer",
     # Masking
@@ -47,15 +49,17 @@ __all__ = [
     "LatentMaskingStrategy",
     "MeanColorMasking",
     "ZeroMasking",
+    "BlurMasking",
     "BoolMaskedPosStrategy",
     "MaskTokenStrategy",
     # Players
     "PlayerStrategy",
     "PixelPlayerStrategy",
     "LatentPlayerStrategy",
-    "GridStrategy",
     "SuperpixelStrategy",
     "PatchStrategy",
+    "GridStrategy",
+    "CustomMasksStrategy",
 ]
 
 

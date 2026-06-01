@@ -71,8 +71,6 @@ from .plot import (
 )
 from .tree import TreeExplainer
 
-from .vision import ImageExplainer
-
 # public utils functions
 from .utils import (  # sets.py  # tree.py
     get_explicit_subsets,
@@ -80,6 +78,7 @@ from .utils import (  # sets.py  # tree.py
     safe_isinstance,
     split_subsets_budget,
 )
+from .vision import ImageExplainer
 
 __all__ = [
     # base
