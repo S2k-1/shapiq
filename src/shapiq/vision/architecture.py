@@ -26,6 +26,20 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
 
+def _extract_hf_features(output: torch.Tensor | object) -> torch.Tensor:
+    """Return the feature tensor from a HuggingFace model output or a plain tensor.
+
+    Transformers ≥ 5.x changed several ``get_*_features`` methods to return a
+    ``BaseModelOutputWithPooling`` instead of a bare tensor.  This helper handles
+    both shapes so callers don't have to repeat the same isinstance/hasattr chain.
+    """
+    if isinstance(output, torch.Tensor):
+        return output
+    if hasattr(output, "pooler_output") and output.pooler_output is not None:
+        return output.pooler_output
+    return output.last_hidden_state[:, 0]
+
+
 class ModelArchitectureStrategy(ABC):
     """Encapsulates model-specific inference logic, decoupling it from ImageImputer."""
 
@@ -33,14 +47,10 @@ class ModelArchitectureStrategy(ABC):
     model: Any
 
     @abstractmethod
-    def default_player_strategy(self) -> PlayerStrategy:
-        """Return the default player strategy for this model."""
-        ...
+    def default_player_strategy(self) -> PlayerStrategy: ...
 
     @abstractmethod
-    def default_masking_strategy(self) -> PixelMaskingStrategy:
-        """Return the default masking strategy for this model."""
-        ...
+    def default_masking_strategy(self) -> PixelMaskingStrategy | LatentMaskingStrategy: ...
 
     @abstractmethod
     def prepare(self, image: np.ndarray, player_strategy: PlayerStrategy) -> None:
@@ -327,14 +337,7 @@ class CLIPArchitecture(ModelArchitectureStrategy):
         self._player_masks = player_strategy.get_masks(image)
         text_inputs = self.processor(text=self.text_prompts, return_tensors="pt", padding=True)
         with torch.no_grad():
-            tf = self.model.get_text_features(**text_inputs)
-            # transformers >=5.x returns BaseModelOutputWithPooling instead of a tensor
-            if not isinstance(tf, torch.Tensor):
-                tf = (
-                    tf.pooler_output
-                    if (hasattr(tf, "pooler_output") and tf.pooler_output is not None)
-                    else tf.last_hidden_state[:, 0]
-                )
+            tf = _extract_hf_features(self.model.get_text_features(**text_inputs))
             self._text_features = torch.nn.functional.normalize(tf, dim=-1)
 
     def value_function(self, image: np.ndarray, coalitions: np.ndarray) -> np.ndarray:
@@ -343,14 +346,9 @@ class CLIPArchitecture(ModelArchitectureStrategy):
             images=[np.asarray(img) for img in masked], return_tensors="pt"
         )
         with torch.no_grad():
-            f = self.model.get_image_features(pixel_values=image_inputs["pixel_values"])
-            # transformers >=5.x may return a model output object instead of a tensor
-            if not isinstance(f, torch.Tensor):
-                f = (
-                    f.pooler_output
-                    if (hasattr(f, "pooler_output") and f.pooler_output is not None)
-                    else f.last_hidden_state[:, 0]
-                )
+            f = _extract_hf_features(
+                self.model.get_image_features(pixel_values=image_inputs["pixel_values"])
+            )
             f = torch.nn.functional.normalize(f, dim=-1)
             logits = self.model.logit_scale.exp() * f @ self._text_features.T
             probs = torch.softmax(logits, dim=-1)
@@ -414,8 +412,9 @@ class CustomViTArchitecture(ModelArchitectureStrategy):
             coalitions = coalitions.reshape(1, -1)
         bool_masks = torch.stack([self._player_strategy_ref.get_latent_mask(c) for c in coalitions])
         with torch.no_grad():
-            out = self._masking_strategy.predict_logits(self.model, self._pixel_values, bool_masks)
-            logits = out.logits if hasattr(out, "logits") else out
+            logits = self._masking_strategy.predict_logits(
+                self.model, self._pixel_values, bool_masks
+            )
             probs = torch.softmax(logits, dim=-1)
         return probs[:, self.class_id].cpu().numpy()
 

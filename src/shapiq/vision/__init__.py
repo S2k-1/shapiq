@@ -1,6 +1,15 @@
 """Vision-based explanation methods for image models."""
 
-from .architecture import ModelArchitectureStrategy, ResNetArchitecture, ViTArchitecture
+from .architecture import (
+    CLIPArchitecture,
+    ConvNeXtArchitecture,
+    CustomViTArchitecture,
+    DINOv2Architecture,
+    HuggingFacePixelArchitecture,
+    ModelArchitectureStrategy,
+    ResNetArchitecture,
+    ViTArchitecture,
+)
 from .imputer import ImageImputer
 from .masking import (
     BoolMaskedPosStrategy,
@@ -11,6 +20,7 @@ from .masking import (
     ZeroMasking,
 )
 from .players import (
+    GridStrategy,
     LatentPlayerStrategy,
     PatchStrategy,
     PixelPlayerStrategy,
@@ -19,10 +29,17 @@ from .players import (
 )
 
 __all__ = [
+    # Explainer (lazy-imported via __getattr__ to avoid circular imports)
+    "ImageExplainer",
     # Architecture
     "ModelArchitectureStrategy",
     "ResNetArchitecture",
     "ViTArchitecture",
+    "HuggingFacePixelArchitecture",
+    "ConvNeXtArchitecture",
+    "DINOv2Architecture",
+    "CLIPArchitecture",
+    "CustomViTArchitecture",
     # Imputer
     "ImageImputer",
     # Masking
@@ -36,6 +53,7 @@ __all__ = [
     "PlayerStrategy",
     "PixelPlayerStrategy",
     "LatentPlayerStrategy",
+    "GridStrategy",
     "SuperpixelStrategy",
     "PatchStrategy",
 ]

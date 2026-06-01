@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 
 from shapiq.imputer.base import Imputer
 
 from .architecture import ModelArchitectureStrategy
 from .players import PlayerStrategy
+
+if TYPE_CHECKING:
+    from .masking import LatentMaskingStrategy, PixelMaskingStrategy
 
 
 class ImageImputer(Imputer):
@@ -16,7 +21,7 @@ class ImageImputer(Imputer):
         architecture: ModelArchitectureStrategy,
         image: np.ndarray,
         player_strategy: PlayerStrategy | None = None,
-        masking_strategy=None,
+        masking_strategy: PixelMaskingStrategy | LatentMaskingStrategy | None = None,
         normalize: bool = True,
         batch_size: int | None = None,
     ):

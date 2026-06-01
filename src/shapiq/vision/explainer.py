@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
@@ -14,6 +14,9 @@ from .architecture import ModelArchitectureStrategy
 from .imputer import ImageImputer
 from .players import PlayerStrategy
 
+if TYPE_CHECKING:
+    from .masking import LatentMaskingStrategy, PixelMaskingStrategy
+
 ImageExplainerIndices = ExplainerIndices
 
 
@@ -26,7 +29,7 @@ class ImageExplainer(Explainer):
         data: np.ndarray | None = None,
         *,
         player_strategy: PlayerStrategy | None = None,
-        masking_strategy=None,
+        masking_strategy: PixelMaskingStrategy | LatentMaskingStrategy | None = None,
         index: ImageExplainerIndices = "k-SII",
         max_order: int = 2,
         random_state: int | None = None,

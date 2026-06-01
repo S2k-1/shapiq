@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import warnings
 from abc import ABC, abstractmethod
 
 import numpy as np
@@ -20,7 +21,7 @@ class PixelPlayerStrategy(PlayerStrategy, ABC):
 
     @abstractmethod
     def get_masks(self, image: np.ndarray) -> np.ndarray:
-        # returns (n_players, H, W)
+        """Return per-player boolean masks of shape ``(n_players, H, W)``."""
         ...
 
 
@@ -29,7 +30,7 @@ class LatentPlayerStrategy(PlayerStrategy, ABC):
 
     @abstractmethod
     def get_latent_mask(self, coalition: np.ndarray) -> torch.Tensor:
-        # returns (n_tokens,) bool
+        """Return a ``(n_tokens,)`` bool tensor; True = token masked (absent)."""
         ...
 
 
@@ -48,7 +49,8 @@ class PatchStrategy(LatentPlayerStrategy):
         if side * side != n_players:
             raise ValueError("n_players must be a perfect square.")
         self.grid_size = grid_size
-        self.patch_size = grid_size // side  # kept for backward compatibility
+        #: Number of token-grid cells along each side of a macro-region.
+        self.patch_size = grid_size // side
         self.side = side
         self._n_players = n_players
 
@@ -71,6 +73,49 @@ class PatchStrategy(LatentPlayerStrategy):
         return self._n_players
 
 
+class GridStrategy(PixelPlayerStrategy):
+    """Splits the image into a regular rectangular grid without any external dependencies.
+
+    Divides the image into ``rows × cols`` non-overlapping tiles.  Tiles are sized
+    via integer division, so the rightmost column and bottom row absorb any remainder
+    pixels when the image dimensions are not evenly divisible.
+
+    This is the fastest option for quick experiments.  For content-aware segmentation
+    use :class:`SuperpixelStrategy` instead.
+
+    Args:
+        rows: Number of tile rows.
+        cols: Number of tile columns. Defaults to ``rows`` (square grid).
+
+    Example::
+
+        strategy = GridStrategy(rows=3, cols=3)  # 9 players
+    """
+
+    def __init__(self, rows: int, cols: int | None = None):
+        self.rows = rows
+        self.cols = cols if cols is not None else rows
+
+    def get_masks(self, image: np.ndarray) -> np.ndarray:
+        """Return per-tile boolean masks of shape ``(n_players, H, W)``."""
+        H, W = image.shape[:2]
+        masks = []
+        for r in range(self.rows):
+            for c in range(self.cols):
+                y0 = r * H // self.rows
+                y1 = (r + 1) * H // self.rows
+                x0 = c * W // self.cols
+                x1 = (c + 1) * W // self.cols
+                m = np.zeros((H, W), dtype=bool)
+                m[y0:y1, x0:x1] = True
+                masks.append(m)
+        return np.stack(masks, axis=0)
+
+    @property
+    def n_players(self) -> int:
+        return self.rows * self.cols
+
+
 class SuperpixelStrategy(PixelPlayerStrategy):
     """Splits the image into superpixels using SLIC."""
 
@@ -78,21 +123,21 @@ class SuperpixelStrategy(PixelPlayerStrategy):
         self.n_segments = n_segments
 
     def get_masks(self, image: np.ndarray) -> np.ndarray:
-        """Run SLIC and return the superpixel mask.
+        """Run SLIC and return per-segment boolean masks of shape ``(n_players, H, W)``.
 
-        Runs SLIC and retrying with randomized values if the number of superpixels does not match
-        the desired number.
+        If SLIC produces fewer segments than requested, the segment count is nudged
+        upward and SLIC is retried up to 20 times.  If the target still cannot be
+        reached, a warning is issued and ``n_segments`` is updated to the actual
+        count so that ``n_players`` stays consistent with the returned masks.
 
         Args:
-            image: The image
+            image: ``(H, W, C)`` image array.
 
         Returns:
-            The superpixel mask
-
+            Boolean mask array of shape ``(n_players, H, W)``.
         """
         from skimage.segmentation import slic
 
-        # run slic for first time
         superpixels = slic(image, n_segments=self.n_segments, start_label=1, slic_zero=True)
         n_superpixels = len(np.unique(superpixels))
 
@@ -107,12 +152,16 @@ class SuperpixelStrategy(PixelPlayerStrategy):
         if n_superpixels >= self.n_segments:
             superpixels = np.clip(superpixels, a_min=1, a_max=self.n_segments)
             n_superpixels = self.n_segments
+        else:
+            warnings.warn(
+                f"SLIC could only produce {n_superpixels} superpixels for the requested "
+                f"{self.n_segments}. Using {n_superpixels} players instead.",
+                stacklevel=2,
+            )
+            self.n_segments = n_superpixels
 
-        players = np.arange(1, self.n_segments + 1).reshape(
-            -1, 1, 1
-        )  # shape (n_players, 1, 1), reshape for broadcasting
-        masks = superpixels == players  # shape (n_players, H, W)
-
+        players = np.arange(1, self.n_segments + 1).reshape(-1, 1, 1)
+        masks = superpixels == players  # (n_players, H, W)
         return masks
 
     @property

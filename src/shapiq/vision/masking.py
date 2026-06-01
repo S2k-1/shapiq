@@ -39,16 +39,16 @@ def _apply_pixel_masking(
     Returns:
         masked_images: (n_coalitions, H, W, C)
     """
-    n_coalitions = coalition.shape[0]
+    n_coalitions, n_players = coalition.shape
     H, W, _ = image.shape
 
     masked_images = np.stack([image] * n_coalitions, axis=0)
 
-    absent_mask = np.zeros((n_coalitions, H, W), dtype=bool)
-    for i, coal in enumerate(coalition):
-        for j, is_present in enumerate(coal):
-            if not is_present:
-                absent_mask[i] |= player_masks[j]
+    # For each coalition, a pixel is absent if at least one absent player covers it.
+    # This reduces to a matrix product: absent @ flat_masks > 0.
+    absent = (~coalition).view(np.uint8)  # (n_coalitions, n_players)
+    flat_masks = player_masks.reshape(n_players, H * W).view(np.uint8)  # (n_players, H*W)
+    absent_mask = (absent @ flat_masks).reshape(n_coalitions, H, W).astype(bool)
 
     masked_images[absent_mask] = fill
     return masked_images
@@ -64,6 +64,8 @@ class MeanColorMasking(PixelMaskingStrategy):
 
 
 class ZeroMasking(PixelMaskingStrategy):
+    """Imputes masked pixels with a constant value (default: black / 0.0)."""
+
     def __init__(self, value: float = 0.0):
         self.value = value
 
@@ -118,10 +120,11 @@ class MaskTokenStrategy(LatentMaskingStrategy):
     """Masks tokens by zeroing the mask_token embedding before the forward pass."""
 
     def predict_logits(self, model, pixel_values, bool_masks):
-        # Explicitly zero the mask_token so that absent patches carry no signal.
+        # Ensure mask_token exists (ViTForImageClassification leaves it None by default),
+        # then zero it in-place so absent patches carry no signal.  Re-creating the
+        # nn.Parameter on every call would replace the model's parameter dict entry.
+        _ensure_vit_mask_token(model, pixel_values.device)
         if hasattr(model, "vit") and hasattr(model.vit, "embeddings"):
-            model.vit.embeddings.mask_token = torch.nn.Parameter(
-                torch.zeros(1, 1, model.config.hidden_size, device=pixel_values.device)
-            )
+            model.vit.embeddings.mask_token.data.zero_()
         batch = pixel_values.repeat(bool_masks.shape[0], 1, 1, 1)
         return model(pixel_values=batch, bool_masked_pos=bool_masks).logits
