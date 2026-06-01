@@ -24,6 +24,7 @@ import sys
 import numpy as np
 import pytest
 
+import shapiq.vision.explainer  # noqa: F401 — ensure module is in sys.modules for namespace check
 from shapiq.vision.architecture import ResNetArchitecture
 from shapiq.vision.imputer import ImageImputer
 from shapiq.vision.masking import MeanColorMasking, ZeroMasking
@@ -70,6 +71,7 @@ class TestNoModuleLevelTorch:
         "module_name",
         [
             "shapiq.vision.architecture",
+            "shapiq.vision.explainer",
             "shapiq.vision.imputer",
             "shapiq.vision.masking",
             "shapiq.vision.players",

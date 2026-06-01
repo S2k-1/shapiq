@@ -22,7 +22,12 @@ from shapiq.vision.architecture import (
     ViTArchitecture,
 )
 from shapiq.vision.imputer import ImageImputer
-from shapiq.vision.masking import BoolMaskedPosStrategy, MeanColorMasking, ZeroMasking
+from shapiq.vision.masking import (
+    BoolMaskedPosStrategy,
+    MaskTokenStrategy,
+    MeanColorMasking,
+    ZeroMasking,
+)
 from shapiq.vision.players import PatchStrategy
 
 from .conftest import FixedMasksStrategy
@@ -542,3 +547,35 @@ class TestViTArchitectureFull:
         out = imputer.value_function(np.eye(4, dtype=bool))
         assert out.shape == (4,)
         assert np.isfinite(out).all()
+
+    def test_works_with_mask_token_strategy(self, image_16x16, patch_strategy_2x2) -> None:
+        """ViTArchitecture + MaskTokenStrategy runs through ImageImputer end-to-end.
+
+        ``_MockViTWithConfig`` exposes ``vit.embeddings.mask_token`` and
+        ``config.hidden_size``, satisfying ``MaskTokenStrategy``'s requirements.
+        """
+        arch = ViTArchitecture(
+            model=_MockViTWithConfig(),
+            processor=_MockImageProcessor(),
+            masking_strategy=MaskTokenStrategy(),
+        )
+        imputer = ImageImputer(
+            architecture=arch,
+            image=image_16x16,
+            player_strategy=patch_strategy_2x2,
+        )
+        assert imputer.n_players == 4
+        out = imputer.value_function(np.eye(4, dtype=bool))
+        assert out.shape == (4,)
+        assert np.isfinite(out).all()
+        # Monotonicity: more visible tokens → higher class-0 probability.
+        coalitions = np.array(
+            [
+                [False, False, False, False],
+                [True, False, False, False],
+                [True, True, True, False],
+                [True, True, True, True],
+            ]
+        )
+        vals = imputer.value_function(coalitions)
+        assert vals[0] < vals[1] < vals[2] < vals[3]

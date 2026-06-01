@@ -36,7 +36,12 @@ from shapiq.vision.masking import (
     MeanColorMasking,
     ZeroMasking,
 )
-from shapiq.vision.players import CustomMasksStrategy, GridStrategy, PatchStrategy
+from shapiq.vision.players import (
+    CustomMasksStrategy,
+    GridStrategy,
+    PatchStrategy,
+    SuperpixelStrategy,
+)
 
 from .conftest import FixedMasksStrategy, make_linear_pixel_model
 
@@ -252,8 +257,9 @@ def test_pixel_matrix_imputer_value_function(
 
 LATENT_MASKERS = [
     ("bool_masked_pos", BoolMaskedPosStrategy),
-    # MaskTokenStrategy requires a real HF ViT (mask_token in embeddings) and is not
-    # exercised here; it has unit-level coverage in test_extra_architectures.py.
+    # MaskTokenStrategy is excluded from the integration matrix because it requires a mock
+    # with ``model.vit.embeddings.mask_token`` and ``model.config.hidden_size``; this
+    # combination is tested end-to-end in test_extra_architectures.py::TestViTArchitectureFull.
 ]
 
 
@@ -447,6 +453,7 @@ def test_grand_coalition_equals_model_on_unmasked_image(image_16x16, four_player
 PIXEL_PLAYER_STRATEGIES = [
     ("grid_2x2", lambda _img, _masks: GridStrategy(rows=2, cols=2)),
     ("custom_masks", lambda _img, masks: CustomMasksStrategy(masks)),
+    ("superpixel_4", lambda _img, _masks: SuperpixelStrategy(n_segments=4)),
 ]
 
 
