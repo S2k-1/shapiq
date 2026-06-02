@@ -27,14 +27,22 @@ class TestPatchStrategy:
         strategy = PatchStrategy(grid_size=6, n_players=9)
         assert strategy.n_players == 9
 
-    def test_init_computes_patch_size_and_side(self) -> None:
+    def test_init_computes_side(self) -> None:
         strategy = PatchStrategy(grid_size=8, n_players=4)
         assert strategy.side == 2
-        assert strategy.patch_size == 4
 
     def test_init_rejects_non_perfect_square(self) -> None:
         with pytest.raises(ValueError, match="perfect square"):
             PatchStrategy(grid_size=8, n_players=5)
+
+    def test_init_rejects_non_positive_grid_size(self) -> None:
+        with pytest.raises(ValueError, match="grid_size"):
+            PatchStrategy(grid_size=0, n_players=4)
+
+    def test_rejects_coalition_length_mismatch(self) -> None:
+        strategy = PatchStrategy(grid_size=4, n_players=4)
+        with pytest.raises(ValueError, match="coalition length"):
+            strategy.get_latent_mask(np.array([True, False]))
 
     def test_non_divisible_grid_works_and_covers_all_tokens(self) -> None:
         """ViT-B/16 grid_size=14 with a 3x3 macro-grid (n_players=9) must work."""
@@ -121,6 +129,14 @@ class TestSuperpixelStrategy:
         with pytest.raises(ValueError, match="overlapping"):
             SuperpixelStrategy(mask=masks)
 
+    def test_rejects_missing_n_segments_without_mask(self) -> None:
+        with pytest.raises(ValueError, match="n_segments must be provided"):
+            SuperpixelStrategy(n_segments=None)
+
+    def test_rejects_non_positive_n_segments(self) -> None:
+        with pytest.raises(ValueError, match="n_segments"):
+            SuperpixelStrategy(n_segments=0)
+
 
 class TestGridStrategy:
     def test_is_pixel_player_strategy(self) -> None:
@@ -164,6 +180,10 @@ class TestGridStrategy:
         assert masks.shape[0] == 8
         coverage = masks.sum(axis=0)
         assert (coverage == 1).all()
+
+    def test_rejects_non_positive_rows(self) -> None:
+        with pytest.raises(ValueError, match="rows"):
+            GridStrategy(rows=0)
 
 
 class TestCustomMasksStrategy:

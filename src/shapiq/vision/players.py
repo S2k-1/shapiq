@@ -13,6 +13,22 @@ if TYPE_CHECKING:
     import torch
 
 
+def _require_positive_int(name: str, value: int) -> None:
+    """Raise ``ValueError`` if ``value`` is not a positive integer."""
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        msg = f"{name} must be a positive integer, got {value!r}."
+        raise ValueError(msg)
+
+
+def _validate_coalition(coalition: np.ndarray, n_players: int) -> np.ndarray:
+    """Return ``coalition`` as a 1D bool array after checking its length."""
+    coalition = np.asarray(coalition, dtype=bool).ravel()
+    if coalition.shape[0] != n_players:
+        msg = f"coalition length {coalition.shape[0]} does not match n_players ({n_players})."
+        raise ValueError(msg)
+    return coalition
+
+
 class PlayerStrategy(ABC):
     """Defines how the image is split into n_players regions."""
 
@@ -24,24 +40,37 @@ class PlayerStrategy(ABC):
 
 
 class PixelPlayerStrategy(PlayerStrategy, ABC):
-    """Player strategy that returns spatial masks in pixel space."""
+    """Player strategy that returns spatial masks in pixel space.
+
+    Per-player masks use ``True`` to mark pixels *belonging* to that player.
+    Coalition-to-absence conversion (``True`` in a coalition = player present) is
+    handled downstream in :func:`~shapiq.vision.masking.coalition_absence_mask`.
+    """
 
     @abstractmethod
     def get_masks(self, image: np.ndarray) -> np.ndarray:
-        """Return per-player boolean masks of shape ``(n_players, H, W)``."""
+        """Return per-player boolean masks of shape ``(n_players, H, W)``.
+
+        ``True`` marks pixels that belong to the player.
+        """
         ...
 
 
 class LatentPlayerStrategy(PlayerStrategy, ABC):
-    """Player strategy that returns a 1D boolean mask in latent/token space."""
+    """Player strategy that returns a 1D boolean mask in latent/token space.
+
+    Latent masks use the opposite convention from pixel masks: ``True`` means the
+    token is *masked away* (player absent). ``False`` means the token is visible.
+    """
 
     @abstractmethod
     def get_latent_mask(self, coalition: np.ndarray) -> torch.Tensor:
-        """Return a ``(n_tokens,)`` bool tensor; True = token masked (absent)."""
+        """Return a ``(n_tokens,)`` bool tensor; ``True`` = token masked (absent)."""
         ...
 
     def get_latent_mask_array(self, coalition: np.ndarray) -> np.ndarray:
-        """Return a ``(n_tokens,)`` numpy bool mask; True = token masked (absent)."""
+        """Return a ``(n_tokens,)`` numpy bool mask; ``True`` = token masked (absent)."""
+        coalition = _validate_coalition(coalition, self.n_players)
         return np.asarray(self.get_latent_mask(coalition), dtype=bool)
 
 
@@ -63,20 +92,21 @@ class PatchStrategy(LatentPlayerStrategy):
             n_players: Number of macro-regions. Must be a perfect square.
 
         Raises:
-            ValueError: If ``n_players`` is not a perfect square.
+            ValueError: If ``grid_size`` or ``n_players`` is invalid.
         """
+        _require_positive_int("grid_size", grid_size)
+        _require_positive_int("n_players", n_players)
         side = int(math.sqrt(n_players))
         if side * side != n_players:
             msg = "n_players must be a perfect square."
             raise ValueError(msg)
         self.grid_size = grid_size
-        #: Number of token-grid cells along each side of a macro-region.
-        self.patch_size = grid_size // side
         self.side = side
         self._n_players = n_players
 
     def get_latent_mask_array(self, coalition: np.ndarray) -> np.ndarray:
-        """Return a ``(grid_size^2,)`` bool mask; True = token masked (absent)."""
+        """Return a ``(grid_size^2,)`` bool mask; ``True`` = token masked (absent)."""
+        coalition = _validate_coalition(coalition, self.n_players)
         mask_2d = np.ones((self.grid_size, self.grid_size), dtype=bool)
         for player, is_present in enumerate(coalition):
             if is_present:
@@ -90,7 +120,7 @@ class PatchStrategy(LatentPlayerStrategy):
         return mask_2d.reshape(-1)
 
     def get_latent_mask(self, coalition: np.ndarray) -> torch.Tensor:
-        """Return a ``(grid_size^2,)`` bool mask; True = token masked (absent)."""
+        """Return a ``(grid_size^2,)`` bool mask; ``True`` = token masked (absent)."""
         import torch  # lazy: only ViT/latent users pay this cost
 
         return torch.from_numpy(self.get_latent_mask_array(coalition))
@@ -108,8 +138,9 @@ class CustomMasksStrategy(PixelPlayerStrategy):
     a fixed grid.  Each mask is a boolean ``(H, W)`` array where ``True`` marks
     the pixels belonging to that player.
 
-    Masks may overlap; pixels not covered by any mask are treated as always absent
-    regardless of coalition membership.
+    Masks may overlap.  Pixels not covered by any player mask are outside the
+    game: they stay visible in every coalition because no player owns them, so
+    they cannot be attributed or masked away.
 
     Args:
         masks: Array of shape ``(n_players, H, W)``.  Any dtype is accepted and
@@ -140,6 +171,7 @@ class CustomMasksStrategy(PixelPlayerStrategy):
             )
             raise ValueError(msg)
         self._masks = np.asarray(masks, dtype=bool)
+        _require_positive_int("n_players", self._masks.shape[0])
 
     def get_masks(self, _image: np.ndarray) -> np.ndarray:
         """Return the pre-computed masks (image argument is ignored)."""
@@ -176,24 +208,31 @@ class GridStrategy(PixelPlayerStrategy):
         Args:
             rows: Number of tile rows.
             cols: Number of tile columns. Defaults to ``rows``.
+
+        Raises:
+            ValueError: If ``rows`` or ``cols`` is not a positive integer.
         """
+        _require_positive_int("rows", rows)
         self.rows = rows
         self.cols = cols if cols is not None else rows
+        _require_positive_int("cols", self.cols)
 
     def get_masks(self, image: np.ndarray) -> np.ndarray:
         """Return per-tile boolean masks of shape ``(n_players, H, W)``."""
-        H, W = image.shape[:2]
-        masks = []
-        for r in range(self.rows):
-            for c in range(self.cols):
-                y0 = r * H // self.rows
-                y1 = (r + 1) * H // self.rows
-                x0 = c * W // self.cols
-                x1 = (c + 1) * W // self.cols
-                m = np.zeros((H, W), dtype=bool)
-                m[y0:y1, x0:x1] = True
-                masks.append(m)
-        return np.stack(masks, axis=0)
+        height, width = image.shape[:2]
+        row_edges = [row * height // self.rows for row in range(self.rows + 1)]
+        col_edges = [col * width // self.cols for col in range(self.cols + 1)]
+
+        row_assign = np.empty(height, dtype=int)
+        for row in range(self.rows):
+            row_assign[row_edges[row] : row_edges[row + 1]] = row
+
+        col_assign = np.empty(width, dtype=int)
+        for col in range(self.cols):
+            col_assign[col_edges[col] : col_edges[col + 1]] = col
+
+        player_grid = row_assign[:, None] * self.cols + col_assign[None, :]
+        return player_grid == np.arange(self.n_players)[:, None, None]
 
     @property
     def n_players(self) -> int:
@@ -205,8 +244,8 @@ class SuperpixelStrategy(PixelPlayerStrategy):
     """Splits the image into superpixels using SLIC.
 
     Args:
-        n_segments: Target number of superpixel segments. Required unless ``mask`` is
-            provided. Defaults to ``10``.
+        n_segments: Target number of superpixel segments. Defaults to ``10`` when
+            ``mask`` is not provided. Pass ``None`` only together with ``mask``.
         algorithm: ``"slic"`` (default) or ``"slico"`` (regular-sized superpixels).
         mask: Optional precomputed segmentation — either a 2D integer label array
             ``(H, W)`` or a 3D boolean array ``(n_players, H, W)`` with non-overlapping
@@ -215,15 +254,22 @@ class SuperpixelStrategy(PixelPlayerStrategy):
 
     def __init__(
         self,
-        n_segments: int = 10,
+        n_segments: int | None = 10,
         *,
         algorithm: Literal["slic", "slico"] = "slic",
         mask: np.ndarray | None = None,
     ) -> None:
-        """Initialize the SuperpixelStrategy."""
+        """Initialize the SuperpixelStrategy.
+
+        Raises:
+            ValueError: If neither ``n_segments`` nor ``mask`` is provided, or if
+                ``n_segments`` is not a positive integer.
+        """
         if mask is None and n_segments is None:
-            msg = "Either n_segments or mask must be provided."
+            msg = "n_segments must be provided when mask is not given."
             raise ValueError(msg)
+        if n_segments is not None:
+            _require_positive_int("n_segments", n_segments)
         self.n_segments = n_segments
         self._algorithm = algorithm
         self._custom_mask: np.ndarray | None = None
