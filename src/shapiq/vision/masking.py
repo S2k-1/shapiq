@@ -133,6 +133,100 @@ class BlurMasking(PixelMaskingStrategy):
         return np.where(absence_mask[..., np.newaxis], blurred[np.newaxis], masked_images)
 
 
+class DatasetMeanMasking(PixelMaskingStrategy):
+    """Imputes absent players' regions with a fixed dataset-wide mean color.
+
+    Unlike :class:`MeanColorMasking`, which uses the mean color of the image being
+    explained, this strategy uses a pre-computed baseline (for example the mean RGB
+    vector over a training set).
+
+    Args:
+        mean_color: Baseline color as a scalar, length-``C`` vector, or broadcastable
+            array. Defaults to ImageNet normalization means ``[0.485, 0.456, 0.406]``.
+
+    Example::
+
+        masking = DatasetMeanMasking(mean_color=[0.5, 0.5, 0.5])
+        imputer = ImageImputer(arch, image, masking_strategy=masking)
+    """
+
+    _IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float64)
+
+    def __init__(self, mean_color: np.ndarray | float | None = None) -> None:
+        """Initialize the DatasetMeanMasking strategy."""
+        if mean_color is None:
+            self.mean_color = self._IMAGENET_MEAN.copy()
+        else:
+            self.mean_color = np.asarray(mean_color, dtype=np.float64)
+
+    def apply(
+        self, image: np.ndarray, player_masks: np.ndarray, coalition: np.ndarray
+    ) -> np.ndarray:
+        """Apply dataset-mean masking to a batch of coalitions."""
+        n_coalitions = coalition.shape[0]
+        H, W, C = image.shape
+        fill = np.broadcast_to(self.mean_color, (C,))
+
+        masked_images = np.stack([image] * n_coalitions, axis=0)
+        absence_mask = np.zeros((n_coalitions, H, W), dtype=bool)
+        for i, coal in enumerate(coalition):
+            for j, is_present in enumerate(coal):
+                if not is_present:
+                    absence_mask[i] |= player_masks[j]
+
+        masked_images[absence_mask] = fill
+        return masked_images
+
+
+class GaussianNoiseMasking(PixelMaskingStrategy):
+    """Imputes absent players' regions with Gaussian noise.
+
+    Absent regions are replaced with i.i.d. Gaussian noise. This can act as a
+    stochastic baseline when the model should not rely on structured content in
+    hidden areas.
+
+    Args:
+        mean: Mean of the Gaussian noise. Defaults to ``0.0``.
+        std: Standard deviation of the Gaussian noise. Defaults to ``1.0``.
+        random_state: Optional seed for reproducible noise fields.
+
+    Example::
+
+        masking = GaussianNoiseMasking(mean=0.0, std=0.1, random_state=0)
+        imputer = ImageImputer(arch, image, masking_strategy=masking)
+    """
+
+    def __init__(
+        self,
+        mean: float = 0.0,
+        std: float = 1.0,
+        *,
+        random_state: int | None = None,
+    ) -> None:
+        """Initialize the GaussianNoiseMasking strategy."""
+        self.mean = mean
+        self.std = std
+        self.random_state = random_state
+
+    def apply(
+        self, image: np.ndarray, player_masks: np.ndarray, coalition: np.ndarray
+    ) -> np.ndarray:
+        """Apply Gaussian-noise masking to a batch of coalitions."""
+        n_coalitions = coalition.shape[0]
+        H, W, _ = image.shape
+        rng = np.random.default_rng(self.random_state)
+        noise = rng.normal(self.mean, self.std, size=(H, W, image.shape[2]))
+
+        masked_images = np.stack([image] * n_coalitions, axis=0)
+        absence_mask = np.zeros((n_coalitions, H, W), dtype=bool)
+        for i, coal in enumerate(coalition):
+            for j, is_present in enumerate(coal):
+                if not is_present:
+                    absence_mask[i] |= player_masks[j]
+
+        return np.where(absence_mask[..., np.newaxis], noise[np.newaxis], masked_images)
+
+
 class MarginalSampling(PixelMaskingStrategy):
     """Imputes absent regions with samples from a bank of reference images.
 
@@ -287,6 +381,8 @@ class InpaintingMasking(PixelMaskingStrategy):
         )
 
 
+
+
 class LatentMaskingStrategy(ABC):
     """Defines how tokens are masked in latent/embedding space."""
 
@@ -294,20 +390,27 @@ class LatentMaskingStrategy(ABC):
     def predict_logits(
         self,
         model: Model,
-        pixel_values: torch.Tensor,
-        bool_masks: torch.Tensor,
-    ) -> torch.Tensor:
+        pixel_values: torch.Tensor | np.ndarray,
+        bool_masks: torch.Tensor | np.ndarray,
+    ) -> torch.Tensor | np.ndarray:
         """Run the model with masked tokens and return logits.
 
         Args:
             model: The vision model.
-            pixel_values: ``(1, C, H, W)`` pre-processed image tensor.
+            pixel_values: ``(1, C, H, W)`` pre-processed image tensor or array.
             bool_masks: ``(B, n_tokens)`` boolean mask; ``True`` = token masked (absent).
 
         Returns:
-            Logit tensor of shape ``(B, n_classes)``.
+            Logit array of shape ``(B, n_classes)``.
         """
         ...
+
+
+def _extract_model_logits(output: object) -> torch.Tensor | np.ndarray:
+    """Return logits from a model output or a bare logits array."""
+    if hasattr(output, "logits"):
+        return output.logits
+    return output
 
 
 class BoolMaskedPosStrategy(LatentMaskingStrategy):
@@ -316,19 +419,32 @@ class BoolMaskedPosStrategy(LatentMaskingStrategy):
     def predict_logits(
         self,
         model: Model,
-        pixel_values: torch.Tensor,
-        bool_masks: torch.Tensor,
-    ) -> torch.Tensor:
+        pixel_values: torch.Tensor | np.ndarray,
+        bool_masks: torch.Tensor | np.ndarray,
+    ) -> torch.Tensor | np.ndarray:
         """Run the model with ``bool_masked_pos`` masking and return logits."""
         import torch
 
-        # ViTForImageClassification has mask_token=None by default, initialise it so the
-        # embedding layer can replace masked patch tokens during the forward pass.
-        embeddings = model.vit.embeddings
-        if embeddings.mask_token is None:
-            embeddings.mask_token = torch.nn.Parameter(torch.zeros(1, 1, model.config.hidden_size))
-        batch = pixel_values.repeat(bool_masks.shape[0], 1, 1, 1)
-        return model(pixel_values=batch, bool_masked_pos=bool_masks).logits
+        if isinstance(pixel_values, torch.Tensor):
+            # ViTForImageClassification has mask_token=None by default, initialise it so the
+            # embedding layer can replace masked patch tokens during the forward pass.
+            # Custom ViT models may not expose the HuggingFace ``vit.embeddings`` layout.
+            vit = getattr(model, "vit", None)
+            if vit is not None:
+                embeddings = vit.embeddings
+                if embeddings.mask_token is None:
+                    embeddings.mask_token = torch.nn.Parameter(
+                        torch.zeros(1, 1, model.config.hidden_size)
+                    )
+            batch = pixel_values.repeat(bool_masks.shape[0], 1, 1, 1)
+            return model(pixel_values=batch, bool_masked_pos=bool_masks).logits
+
+        pixel_values = np.asarray(pixel_values)
+        bool_masks = np.asarray(bool_masks, dtype=bool)
+        batch = np.repeat(pixel_values, bool_masks.shape[0], axis=0)
+        return np.asarray(
+            _extract_model_logits(model(pixel_values=batch, bool_masked_pos=bool_masks))
+        )
 
 
 class MaskTokenStrategy(LatentMaskingStrategy):

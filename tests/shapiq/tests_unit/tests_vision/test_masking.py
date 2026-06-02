@@ -11,6 +11,8 @@ import torch
 from shapiq.vision.masking import (
     BlurMasking,
     BoolMaskedPosStrategy,
+    DatasetMeanMasking,
+    GaussianNoiseMasking,
     InpaintingMasking,
     LatentMaskingStrategy,
     LayerMasking,
@@ -174,6 +176,47 @@ class TestBlurMasking:
         assert out.shape == (2, 4, 4, 3)
         np.testing.assert_array_equal(out[0], image)
         assert not np.allclose(out[1], image)
+
+
+class TestDatasetMeanMasking:
+    def test_is_pixel_masking_strategy(self) -> None:
+        assert isinstance(DatasetMeanMasking(), PixelMaskingStrategy)
+
+    def test_empty_coalition_uses_dataset_mean(self, image, half_masks) -> None:
+        mean_color = np.array([10.0, 20.0, 30.0])
+        strategy = DatasetMeanMasking(mean_color=mean_color)
+        coalition = np.array([[False, False]])
+        out = strategy.apply(image, half_masks, coalition)
+        expected = np.broadcast_to(mean_color, image.shape)
+        np.testing.assert_allclose(out[0], expected)
+
+    def test_default_imagenet_mean(self) -> None:
+        strategy = DatasetMeanMasking()
+        np.testing.assert_allclose(strategy.mean_color, DatasetMeanMasking._IMAGENET_MEAN)
+
+
+class TestGaussianNoiseMasking:
+    def test_is_pixel_masking_strategy(self) -> None:
+        assert isinstance(GaussianNoiseMasking(), PixelMaskingStrategy)
+
+    def test_empty_coalition_filled_with_noise(self, image, half_masks) -> None:
+        strategy = GaussianNoiseMasking(mean=0.0, std=1.0, random_state=0)
+        coalition = np.array([[False, False]])
+        out = strategy.apply(image, half_masks, coalition)
+        assert out.shape == (1, 4, 4, 3)
+        assert not np.allclose(out[0], image)
+
+    def test_reproducible_with_random_state(self, image, half_masks) -> None:
+        coalition = np.array([[False, False]])
+        out_a = GaussianNoiseMasking(random_state=7).apply(image, half_masks, coalition)
+        out_b = GaussianNoiseMasking(random_state=7).apply(image, half_masks, coalition)
+        np.testing.assert_array_equal(out_a, out_b)
+
+    def test_full_coalition_preserves_image(self, image, half_masks) -> None:
+        strategy = GaussianNoiseMasking(random_state=0)
+        coalition = np.array([[True, True]])
+        out = strategy.apply(image, half_masks, coalition)
+        np.testing.assert_array_equal(out[0], image)
 
 
 def test_latent_masking_strategy_is_abstract() -> None:

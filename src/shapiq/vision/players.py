@@ -40,6 +40,10 @@ class LatentPlayerStrategy(PlayerStrategy, ABC):
         """Return a ``(n_tokens,)`` bool tensor; True = token masked (absent)."""
         ...
 
+    def get_latent_mask_array(self, coalition: np.ndarray) -> np.ndarray:
+        """Return a ``(n_tokens,)`` numpy bool mask; True = token masked (absent)."""
+        return np.asarray(self.get_latent_mask(coalition), dtype=bool)
+
 
 class PatchStrategy(LatentPlayerStrategy):
     """Splits the image into patches for ViT models.
@@ -71,12 +75,9 @@ class PatchStrategy(LatentPlayerStrategy):
         self.side = side
         self._n_players = n_players
 
-    def get_latent_mask(self, coalition: np.ndarray) -> torch.Tensor:
+    def get_latent_mask_array(self, coalition: np.ndarray) -> np.ndarray:
         """Return a ``(grid_size^2,)`` bool mask; True = token masked (absent)."""
-        import torch  # lazy: only ViT/latent users pay this cost
-
-        # True = masked (absent), False = visible (present); shape (grid_size^2,)
-        mask_2d = torch.ones((self.grid_size, self.grid_size), dtype=torch.bool)
+        mask_2d = np.ones((self.grid_size, self.grid_size), dtype=bool)
         for player, is_present in enumerate(coalition):
             if is_present:
                 row = player // self.side
@@ -86,7 +87,13 @@ class PatchStrategy(LatentPlayerStrategy):
                 x_start = col * self.grid_size // self.side
                 x_end = (col + 1) * self.grid_size // self.side
                 mask_2d[y_start:y_end, x_start:x_end] = False
-        return mask_2d.flatten()
+        return mask_2d.reshape(-1)
+
+    def get_latent_mask(self, coalition: np.ndarray) -> torch.Tensor:
+        """Return a ``(grid_size^2,)`` bool mask; True = token masked (absent)."""
+        import torch  # lazy: only ViT/latent users pay this cost
+
+        return torch.from_numpy(self.get_latent_mask_array(coalition))
 
     @property
     def n_players(self) -> int:

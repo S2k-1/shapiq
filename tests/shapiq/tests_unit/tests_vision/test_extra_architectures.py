@@ -78,6 +78,22 @@ class _MockHFClassifier:
         return SimpleNamespace(logits=logits)
 
 
+class _CudaTrackingClassifier(_MockHFClassifier):
+    """Records the device of incoming ``pixel_values`` tensors."""
+
+    def __init__(self, n_classes: int = 2) -> None:
+        super().__init__(n_classes=n_classes)
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.weight = torch.nn.Parameter(torch.zeros(1, device=self.device))
+
+    def parameters(self):
+        yield self.weight
+
+    def __call__(self, pixel_values=None, **_):
+        self.last_device = pixel_values.device
+        return super().__call__(pixel_values=pixel_values)
+
+
 class _MockBackbone:
     """Mimics a DINOv2-style backbone.
 
@@ -202,6 +218,16 @@ class TestHuggingFacePixelArchitecture:
         # More visible pixels → higher logit-0 → higher prob of class 0.
         assert out[3] >= max(out[1], out[2])
         assert out[1] >= out[0]
+
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+    def test_predict_batch_runs_on_model_device(self, hwc_image, two_player_masks_8x8) -> None:
+        model = _CudaTrackingClassifier()
+        arch = HuggingFacePixelArchitecture(
+            model, _MockImageProcessor(), masking_strategy=ZeroMasking()
+        )
+        arch.prepare(hwc_image, FixedMasksStrategy(two_player_masks_8x8))
+        arch.value_function(hwc_image, np.array([[True, True]]))
+        assert model.last_device.type == "cuda"
 
     def test_empty_prediction_is_in_unit_interval(self, hwc_image, two_player_masks_8x8) -> None:
         arch = HuggingFacePixelArchitecture(
@@ -366,7 +392,8 @@ class TestCustomViTArchitecture:
         arch = self._arch(n_tokens=4, class_id=0)
         # PatchStrategy with grid_size=2, 4 players: each player == one "patch".
         strategy = PatchStrategy(grid_size=2, n_players=4)
-        arch.prepare(image=np.zeros((4, 4, 3)), player_strategy=strategy)
+        image = np.zeros((4, 4, 3))
+        arch.prepare(image, strategy)
 
         coalitions = np.array(
             [
@@ -376,7 +403,7 @@ class TestCustomViTArchitecture:
                 [True, True, True, True],
             ],
         )
-        out = arch.value_function(np.zeros((4, 4, 3)), coalitions)
+        out = arch.value_function(image, coalitions)
         assert out.shape == (4,)
         # Monotonic in number of visible players (mock model's class-0 logit == #visible).
         assert out[0] < out[1] < out[2] < out[3]
@@ -384,8 +411,9 @@ class TestCustomViTArchitecture:
     def test_value_function_accepts_1d_coalition(self) -> None:
         arch = self._arch(n_tokens=4, class_id=0)
         strategy = PatchStrategy(grid_size=2, n_players=4)
-        arch.prepare(image=np.zeros((4, 4, 3)), player_strategy=strategy)
-        out = arch.value_function(np.zeros((4, 4, 3)), np.array([True, True, True, True]))
+        image = np.zeros((4, 4, 3))
+        arch.prepare(image, strategy)
+        out = arch.value_function(image, np.array([True, True, True, True]))
         assert out.shape == (1,)
 
     def test_works_inside_image_imputer(self) -> None:

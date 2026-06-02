@@ -67,13 +67,46 @@ def generic_to_specific_explainer(
     )
 
 
+def vision_to_specific_explainer(
+    generic_explainer: Explainer,
+    model: Model | Game | Callable[[np.ndarray], np.ndarray],
+    data: object,
+    index: ExplainerIndices = "k-SII",
+    max_order: int = 2,
+    **kwargs: Any,
+) -> None:
+    """Transform the base Explainer into :class:`~shapiq.vision.explainer.ImageExplainer`."""
+    from shapiq.vision.architecture import get_architecture_for_model
+    from shapiq.vision.explainer import ImageExplainer
+
+    architecture_kwargs = {
+        key: kwargs.pop(key)
+        for key in ("architecture", "processor", "text_prompts", "target_prompt_idx")
+        if key in kwargs
+    }
+    architecture = get_architecture_for_model(model, **architecture_kwargs)
+    generic_explainer.__class__ = ImageExplainer
+    ImageExplainer.__init__(
+        generic_explainer,
+        architecture=architecture,
+        data=data,
+        index=index,
+        max_order=max_order,
+        player_strategy=kwargs.get("player_strategy"),
+        masking_strategy=kwargs.get("masking_strategy"),
+        random_state=kwargs.get("random_state"),
+        batch_size=kwargs.get("batch_size"),
+    )
+
+
 class Explainer:
     """The main Explainer class for a simpler user interface.
 
     shapiq.Explainer is a simplified interface for the ``shapiq`` package. It detects between
     :class:`~shapiq.explainer.tabular.TabularExplainer`,
     :class:`~shapiq.tree.TreeExplainer`,
-    and :class:`~shapiq.explainer.tabpfn.TabPFNExplainer`. For a detailed description of the
+    :class:`~shapiq.explainer.tabpfn.TabPFNExplainer`, and
+    :class:`~shapiq.vision.explainer.ImageExplainer`. For a detailed description of the
     different explainers, see the respective classes.
     """
 
@@ -102,7 +135,8 @@ class Explainer:
                 :class:`~shapiq.explainer.tabpfn.TabPFNExplainer`. This is a 2-dimensional
                 NumPy array with shape ``(n_samples, n_features)``. Can be empty for the
                 :class:`~shapiq.tree.TreeExplainer`, which does not require background
-                data.
+                data. For :class:`~shapiq.vision.explainer.ImageExplainer`, pass a single
+                image as a ``(H, W, C)`` numpy array, PIL image, or tensor.
 
             class_index: The class index of the model to explain. Defaults to ``None``, which will
                 set the class index to ``1`` per default for classification models and is ignored
@@ -127,6 +161,20 @@ class Explainer:
         """
         # If Explainer is instantiated directly, dynamically dispatch to the appropriate subclass
         if self.__class__ is Explainer:
+            if data is not None:
+                from shapiq.vision.utils import is_image_like
+
+                if is_image_like(data):
+                    vision_to_specific_explainer(
+                        self,
+                        model=model,
+                        data=data,
+                        index=index,
+                        max_order=max_order,
+                        **kwargs,
+                    )
+                    return
+
             model_class = print_class(model)
             _, model_type = get_predict_function_and_model_type(model, model_class, class_index)
             explainer_classes = get_explainers()
