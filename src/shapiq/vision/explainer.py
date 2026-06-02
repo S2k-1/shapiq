@@ -83,11 +83,11 @@ class ImageExplainer(Explainer):
             random_state=random_state,
         )
 
-    def explain_function(self, _x: np.ndarray | None, *, budget: int = 64) -> InteractionValues:
+    def explain_function(self, x: np.ndarray | None = None, *, budget: int = 64) -> InteractionValues:
         """Compute interaction values for the image.
 
         Args:
-            _x: Unused; the image was provided at construction time.
+            x: Unused; the image was provided at construction time.
             budget: Number of model evaluations (coalitions) to use.
 
         Returns:
