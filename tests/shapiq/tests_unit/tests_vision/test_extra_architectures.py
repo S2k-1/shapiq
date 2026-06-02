@@ -392,7 +392,8 @@ class TestCustomViTArchitecture:
         arch = self._arch(n_tokens=4, class_id=0)
         # PatchStrategy with grid_size=2, 4 players: each player == one "patch".
         strategy = PatchStrategy(grid_size=2, n_players=4)
-        arch.prepare(image=np.zeros((4, 4, 3)), player_strategy=strategy)
+        image = np.zeros((4, 4, 3))
+        arch.prepare(image, strategy)
 
         coalitions = np.array(
             [
@@ -402,7 +403,7 @@ class TestCustomViTArchitecture:
                 [True, True, True, True],
             ],
         )
-        out = arch.value_function(np.zeros((4, 4, 3)), coalitions)
+        out = arch.value_function(image, coalitions)
         assert out.shape == (4,)
         # Monotonic in number of visible players (mock model's class-0 logit == #visible).
         assert out[0] < out[1] < out[2] < out[3]
@@ -410,8 +411,9 @@ class TestCustomViTArchitecture:
     def test_value_function_accepts_1d_coalition(self) -> None:
         arch = self._arch(n_tokens=4, class_id=0)
         strategy = PatchStrategy(grid_size=2, n_players=4)
-        arch.prepare(image=np.zeros((4, 4, 3)), player_strategy=strategy)
-        out = arch.value_function(np.zeros((4, 4, 3)), np.array([True, True, True, True]))
+        image = np.zeros((4, 4, 3))
+        arch.prepare(image, strategy)
+        out = arch.value_function(image, np.array([True, True, True, True]))
         assert out.shape == (1,)
 
     def test_works_inside_image_imputer(self) -> None:
