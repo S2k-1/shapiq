@@ -31,11 +31,17 @@ from shapiq.vision.architecture import (
 )
 from shapiq.vision.imputer import ImageImputer
 from shapiq.vision.masking import (
+    BlurMasking,
     BoolMaskedPosStrategy,
     MeanColorMasking,
     ZeroMasking,
 )
-from shapiq.vision.players import PatchStrategy
+from shapiq.vision.players import (
+    CustomMasksStrategy,
+    GridStrategy,
+    PatchStrategy,
+    SuperpixelStrategy,
+)
 
 from .conftest import FixedMasksStrategy, make_linear_pixel_model
 
@@ -185,6 +191,7 @@ PIXEL_ARCHITECTURES = [
 PIXEL_MASKERS = [
     ("mean_color", MeanColorMasking),
     ("zero", ZeroMasking),
+    ("blur", BlurMasking),
 ]
 
 
@@ -250,7 +257,9 @@ def test_pixel_matrix_imputer_value_function(
 
 LATENT_MASKERS = [
     ("bool_masked_pos", BoolMaskedPosStrategy),
-    ("mask_token_via_bool", BoolMaskedPosStrategy),  # MaskTokenStrategy needs a real ViT
+    # MaskTokenStrategy is excluded from the integration matrix because it requires a mock
+    # with ``model.vit.embeddings.mask_token`` and ``model.config.hidden_size``; this
+    # combination is tested end-to-end in test_extra_architectures.py::TestViTArchitectureFull.
 ]
 
 
@@ -434,3 +443,92 @@ def test_grand_coalition_equals_model_on_unmasked_image(image_16x16, four_player
             ref = arch.value_function(image_16x16, np.array([[True] * 4]))
             ref = float(np.atleast_1d(ref)[0])
             assert v_grand == pytest.approx(ref, abs=1e-5), (arch_name, masker_name)
+
+
+# ---------------------------------------------------------------------------
+# Matrix test 7 — player strategy sweep: GridStrategy and CustomMasksStrategy
+# ---------------------------------------------------------------------------
+
+#: Factory signature: ``(image, masks) -> PlayerStrategy``
+PIXEL_PLAYER_STRATEGIES = [
+    ("grid_2x2", lambda _img, _masks: GridStrategy(rows=2, cols=2)),
+    ("custom_masks", lambda _img, masks: CustomMasksStrategy(masks)),
+    ("superpixel_4", lambda _img, _masks: SuperpixelStrategy(n_segments=4)),
+]
+
+
+@pytest.mark.parametrize(("player_name", "player_factory"), PIXEL_PLAYER_STRATEGIES)
+@pytest.mark.parametrize(("masker_name", "masker_cls"), PIXEL_MASKERS)
+def test_player_strategy_matrix_imputer_value_function(
+    player_name, player_factory, masker_name, masker_cls, image_16x16, four_player_masks
+):
+    """GridStrategy and CustomMasksStrategy return correct shapes through the imputer."""
+    arch = _build_resnet_arch(masker_cls())
+    player_strategy = player_factory(image_16x16, four_player_masks)
+    imputer = ImageImputer(
+        architecture=arch,
+        image=image_16x16,
+        player_strategy=player_strategy,
+        normalize=False,
+    )
+    assert imputer.n_players == 4, (player_name, masker_name)
+    coalitions = np.array(
+        [
+            [False, False, False, False],
+            [True, False, False, False],
+            [False, True, True, False],
+            [True, True, True, True],
+        ]
+    )
+    out = imputer(coalitions)
+    assert out.shape == (4,), (player_name, masker_name)
+    assert np.isfinite(out).all(), (player_name, masker_name)
+
+
+@pytest.mark.parametrize(("player_name", "player_factory"), PIXEL_PLAYER_STRATEGIES)
+@pytest.mark.parametrize(("masker_name", "masker_cls"), PIXEL_MASKERS)
+def test_player_strategy_matrix_explainer_endtoend(
+    player_name, player_factory, masker_name, masker_cls, image_16x16, four_player_masks
+):
+    """End-to-end ImageExplainer run for every (player strategy x masker) combination."""
+    arch = _build_resnet_arch(masker_cls())
+    player_strategy = player_factory(image_16x16, four_player_masks)
+    iv = ImageExplainer(
+        architecture=arch,
+        data=image_16x16,
+        player_strategy=player_strategy,
+        index="k-SII",
+        max_order=2,
+        batch_size=4,
+        random_state=0,
+    ).explain_function(image_16x16, budget=32)
+    assert isinstance(iv, InteractionValues), (player_name, masker_name)
+    assert iv.n_players == 4, (player_name, masker_name)
+    assert np.isfinite(iv.values).all(), (player_name, masker_name)
+
+
+@pytest.mark.parametrize(("player_name", "player_factory"), PIXEL_PLAYER_STRATEGIES)
+@pytest.mark.parametrize(("masker_name", "masker_cls"), PIXEL_MASKERS)
+def test_player_strategy_matrix_exact_shapley(
+    player_name, player_factory, masker_name, masker_cls, image_16x16, four_player_masks
+):
+    """ExactComputer efficiency axiom holds for every (player strategy x masker)."""
+    from shapiq.game_theory.exact import ExactComputer
+
+    arch = _build_resnet_arch(masker_cls())
+    player_strategy = player_factory(image_16x16, four_player_masks)
+    imputer = ImageImputer(
+        architecture=arch,
+        image=image_16x16,
+        player_strategy=player_strategy,
+        normalize=False,
+    )
+    ec = ExactComputer(n_players=imputer.n_players, game=imputer)
+    sv = ec.probabilistic_value(index="SV")
+    assert np.isfinite(sv.values).all(), (player_name, masker_name)
+    v_grand = imputer(np.array([[True] * 4]))[0]
+    v_empty = imputer(np.array([[False] * 4]))[0]
+    assert sv.values[1:].sum() == pytest.approx(v_grand - v_empty, abs=1e-5), (
+        player_name,
+        masker_name,
+    )

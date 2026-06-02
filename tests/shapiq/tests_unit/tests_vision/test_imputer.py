@@ -62,7 +62,7 @@ class TestImageImputerBasics:
             tiny_image, two_player_masks, np.ones((4, 4)), ZeroMasking(), normalize=False
         )
         out = imputer.value_function(np.array([True, True]))
-        # Should return at least one value
+        # Should not raise; should return at least one value.
         out_arr = np.atleast_1d(out)
         assert out_arr.shape[0] == 1
 

@@ -7,6 +7,8 @@ import pytest
 import torch
 
 from shapiq.vision.players import (
+    CustomMasksStrategy,
+    GridStrategy,
     LatentPlayerStrategy,
     PatchStrategy,
     PixelPlayerStrategy,
@@ -35,7 +37,7 @@ class TestPatchStrategy:
             PatchStrategy(grid_size=8, n_players=5)
 
     def test_non_divisible_grid_works_and_covers_all_tokens(self) -> None:
-        """ViT-B/16 grid_size=14 with a 3×3 macro-grid (n_players=9) must work."""
+        """ViT-B/16 grid_size=14 with a 3x3 macro-grid (n_players=9) must work."""
         strategy = PatchStrategy(grid_size=14, n_players=9)
         assert strategy.n_players == 9
         # All-present coalition must cover every token (no gaps in the mask).
@@ -103,3 +105,89 @@ class TestSuperpixelStrategy:
         coverage = masks.sum(axis=0)
         # Every pixel is covered by exactly one segment.
         assert (coverage == 1).all()
+
+
+class TestGridStrategy:
+    def test_is_pixel_player_strategy(self) -> None:
+        strategy = GridStrategy(rows=3)
+        assert isinstance(strategy, PixelPlayerStrategy)
+        assert isinstance(strategy, PlayerStrategy)
+
+    def test_n_players_rows_times_cols(self) -> None:
+        assert GridStrategy(rows=3, cols=4).n_players == 12
+
+    def test_default_cols_equals_rows(self) -> None:
+        strategy = GridStrategy(rows=3)
+        assert strategy.cols == 3
+        assert strategy.n_players == 9
+
+    def test_get_masks_shape_and_dtype(self) -> None:
+        rng = np.random.default_rng(0)
+        image = rng.integers(0, 255, size=(24, 24, 3)).astype(np.float64)
+        masks = GridStrategy(rows=3, cols=4).get_masks(image)
+        assert masks.shape == (12, 24, 24)
+        assert masks.dtype == bool
+
+    def test_get_masks_partition_property(self) -> None:
+        """Each pixel is covered by exactly one grid tile."""
+        rng = np.random.default_rng(1)
+        image = rng.integers(0, 255, size=(16, 16, 3)).astype(np.float64)
+        masks = GridStrategy(rows=2, cols=2).get_masks(image)
+        coverage = masks.sum(axis=0)
+        assert (coverage == 1).all()
+
+    def test_non_divisible_dimensions_still_covers_all_pixels(self) -> None:
+        """When image size is not evenly divisible by rows/cols every pixel is still covered."""
+        image = np.zeros((7, 7, 3))
+        masks = GridStrategy(rows=2, cols=2).get_masks(image)
+        coverage = masks.sum(axis=0)
+        assert (coverage == 1).all()
+
+    def test_rectangular_grid_covers_all_pixels(self) -> None:
+        image = np.zeros((8, 16, 3))
+        masks = GridStrategy(rows=2, cols=4).get_masks(image)
+        assert masks.shape[0] == 8
+        coverage = masks.sum(axis=0)
+        assert (coverage == 1).all()
+
+
+class TestCustomMasksStrategy:
+    def test_is_pixel_player_strategy(self) -> None:
+        masks = np.zeros((3, 8, 8), dtype=bool)
+        masks[0, :, :3] = True
+        masks[1, :, 3:6] = True
+        masks[2, :, 6:] = True
+        strategy = CustomMasksStrategy(masks)
+        assert isinstance(strategy, PixelPlayerStrategy)
+        assert isinstance(strategy, PlayerStrategy)
+
+    def test_n_players_matches_first_dimension(self) -> None:
+        masks = np.zeros((5, 4, 4), dtype=bool)
+        assert CustomMasksStrategy(masks).n_players == 5
+
+    def test_get_masks_returns_provided_masks(self) -> None:
+        rng = np.random.default_rng(0)
+        masks = rng.integers(0, 2, size=(3, 8, 8)).astype(bool)
+        strategy = CustomMasksStrategy(masks)
+        dummy_image = np.zeros((8, 8, 3))
+        returned = strategy.get_masks(dummy_image)
+        np.testing.assert_array_equal(returned, masks)
+
+    def test_get_masks_ignores_image_argument(self) -> None:
+        """The image argument is ignored; the pre-computed masks are always returned."""
+        masks = np.zeros((2, 4, 4), dtype=bool)
+        masks[0, :, :2] = True
+        masks[1, :, 2:] = True
+        strategy = CustomMasksStrategy(masks)
+        for img in [np.zeros((4, 4, 3)), np.ones((100, 100, 3))]:
+            np.testing.assert_array_equal(strategy.get_masks(img), masks)
+
+    def test_rejects_non_3d_array(self) -> None:
+        with pytest.raises(ValueError, match="3-D"):
+            CustomMasksStrategy(np.zeros((4, 4)))
+
+    def test_casts_non_bool_input_to_bool(self) -> None:
+        int_masks = np.array([[[1, 0], [0, 1]], [[0, 1], [1, 0]]], dtype=np.int32)
+        strategy = CustomMasksStrategy(int_masks)
+        assert strategy._masks.dtype == bool
+        np.testing.assert_array_equal(strategy._masks, int_masks.astype(bool))

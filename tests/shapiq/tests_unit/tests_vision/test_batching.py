@@ -1,4 +1,4 @@
-"""Tests for the batch_size parameter on ImageImputer and ImageExplainer
+"""Tests for the ``batch_size`` parameter on ImageImputer and ImageExplainer.
 
 The contract for batching:
 - ``batch_size=None`` and ``batch_size >= n_coalitions`` are equivalent (one model call).
@@ -94,7 +94,7 @@ class TestBatchingNumerics:
         imp, arch = _build(image, masks, batch_size=5)
         arch.call_batch_sizes.clear()
         imp.value_function(coalitions)
-        # 16 split by 5 -> chunks of 5, 5, 5, 1.
+        # 16 split by 5 → chunks of 5, 5, 5, 1.
         assert arch.call_batch_sizes == [5, 5, 5, 1]
 
     def test_batch_size_one_splits_per_coalition(self, setup_image_and_masks) -> None:
@@ -109,7 +109,7 @@ class TestBatchingNumerics:
         image, masks = setup_image_and_masks
         imp, _ = _build(image, masks, batch_size=2)
         out = imp.value_function(np.array([True, True, True, True]))
-        # Linear model, full coalition with ZeroMasking -> original image sum.
+        # Linear model, full coalition with ZeroMasking → original image sum.
         assert out.shape == (1,)
         assert out[0] == pytest.approx(image.sum())
 
@@ -158,6 +158,6 @@ class TestBatchingPropagation:
         result = explainer.explain_function(image, budget=16)
         # Sanity check: explainer ran and returned a non-empty result.
         assert result.n_players == 4
-        # The architecture saw multiple sub-batch calls.
+        # And — crucially — the architecture saw multiple sub-batch calls.
         # (The exact count depends on the approximator's sampling, so just check >1.)
         assert sum(b > 0 for b in arch.call_batch_sizes) > 1

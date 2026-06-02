@@ -19,9 +19,15 @@ from shapiq.vision.architecture import (
     DINOv2Architecture,
     HuggingFacePixelArchitecture,
     ModelArchitectureStrategy,
+    ViTArchitecture,
 )
 from shapiq.vision.imputer import ImageImputer
-from shapiq.vision.masking import BoolMaskedPosStrategy, MeanColorMasking, ZeroMasking
+from shapiq.vision.masking import (
+    BoolMaskedPosStrategy,
+    MaskTokenStrategy,
+    MeanColorMasking,
+    ZeroMasking,
+)
 from shapiq.vision.players import PatchStrategy
 
 from .conftest import FixedMasksStrategy
@@ -392,3 +398,184 @@ class TestCustomViTArchitecture:
         assert imputer.n_players == 4
         out = imputer.value_function(np.eye(4, dtype=bool))
         assert out.shape == (4,)
+
+
+# ---------------------------------------------------------------------------
+# ViTArchitecture — full functional tests
+# ---------------------------------------------------------------------------
+
+
+class _MockViTWithConfig:
+    """HF-style ViT mock: has model.config and handles bool_masked_pos.
+
+    config.image_size=16, config.patch_size=8 → grid_size=2 → 4 tokens.
+
+    When called *without* bool_masked_pos (during prepare's class detection),
+    the model returns a fixed logit favouring class 0.  When called *with*
+    bool_masked_pos the class-0 logit equals the number of visible tokens,
+    which lets us write deterministic monotonicity assertions.
+    """
+
+    class _Config:
+        image_size = 16
+        patch_size = 8  # → grid_size = image_size / patch_size = 2, n_tokens = 4
+        hidden_size = 4
+
+    config = _Config()
+
+    def __init__(self) -> None:
+        # Expose vit.embeddings.mask_token so MaskTokenStrategy tests can also use this mock.
+        self.vit = SimpleNamespace(
+            embeddings=SimpleNamespace(mask_token=torch.nn.Parameter(torch.zeros(1, 1, 4)))
+        )
+
+    def __call__(self, pixel_values=None, bool_masked_pos=None, **_):
+        b = pixel_values.shape[0]
+        if bool_masked_pos is None:
+            # Initial forward during prepare — class 0 wins (logit 2.0 vs 0.5).
+            return SimpleNamespace(logits=torch.tensor([[2.0, 0.5]]).expand(b, -1).clone())
+        visible = (~bool_masked_pos).sum(dim=1).float()
+        return SimpleNamespace(logits=torch.stack([visible, -visible], dim=1))
+
+
+class TestViTArchitectureFull:
+    """Functional tests for ViTArchitecture: prepare / value_function / calc_empty_prediction."""
+
+    @pytest.fixture
+    def arch(self):
+        """ViTArchitecture wired with BoolMaskedPosStrategy for easy mocking."""
+        return ViTArchitecture(
+            model=_MockViTWithConfig(),
+            processor=_MockImageProcessor(),
+            masking_strategy=BoolMaskedPosStrategy(),
+        )
+
+    @pytest.fixture
+    def image_16x16(self) -> np.ndarray:
+        rng = np.random.default_rng(42)
+        return rng.integers(0, 255, size=(16, 16, 3)).astype(np.float64)
+
+    @pytest.fixture
+    def patch_strategy_2x2(self) -> PatchStrategy:
+        """2x2 macro-grid -> 4 players on a 4-token ViT."""
+        return PatchStrategy(grid_size=2, n_players=4)
+
+    def test_is_architecture_strategy(self) -> None:
+        arch = ViTArchitecture(model=object(), processor=object())
+        assert isinstance(arch, ModelArchitectureStrategy)
+
+    def test_prepare_sets_class_id(self, arch, image_16x16, patch_strategy_2x2) -> None:
+        assert arch._class_id is None
+        arch.prepare(image_16x16, patch_strategy_2x2)
+        # Mock returns logits [2.0, 0.5] → argmax == 0.
+        assert arch._class_id == 0
+
+    def test_prepare_caches_pixel_values(self, arch, image_16x16, patch_strategy_2x2) -> None:
+        arch.prepare(image_16x16, patch_strategy_2x2)
+        assert arch._pixel_values is not None
+        assert arch._pixel_values.ndim == 4
+        assert arch._pixel_values.shape[0] == 1
+
+    def test_prepare_stores_player_strategy_ref(
+        self, arch, image_16x16, patch_strategy_2x2
+    ) -> None:
+        arch.prepare(image_16x16, patch_strategy_2x2)
+        assert arch._player_strategy_ref is patch_strategy_2x2
+
+    def test_value_function_shape_and_finite(self, arch, image_16x16, patch_strategy_2x2) -> None:
+        arch.prepare(image_16x16, patch_strategy_2x2)
+        coalitions = np.array(
+            [
+                [False, False, False, False],
+                [True, False, False, False],
+                [True, True, True, False],
+                [True, True, True, True],
+            ]
+        )
+        out = arch.value_function(image_16x16, coalitions)
+        assert out.shape == (4,)
+        assert np.isfinite(out).all()
+
+    def test_value_function_monotone_in_visible_tokens(
+        self, arch, image_16x16, patch_strategy_2x2
+    ) -> None:
+        """More visible tokens → higher class-0 probability (mock design guarantee)."""
+        arch.prepare(image_16x16, patch_strategy_2x2)
+        coalitions = np.array(
+            [
+                [False, False, False, False],
+                [True, False, False, False],
+                [True, True, True, False],
+                [True, True, True, True],
+            ]
+        )
+        out = arch.value_function(image_16x16, coalitions)
+        assert out[0] < out[1] < out[2] < out[3]
+
+    def test_value_function_accepts_1d_coalition(
+        self, arch, image_16x16, patch_strategy_2x2
+    ) -> None:
+        arch.prepare(image_16x16, patch_strategy_2x2)
+        out = arch.value_function(image_16x16, np.array([True, True, True, True]))
+        assert out.shape == (1,)
+
+    def test_calc_empty_prediction_is_float(self, arch, image_16x16, patch_strategy_2x2) -> None:
+        arch.prepare(image_16x16, patch_strategy_2x2)
+        empty = arch.calc_empty_prediction(image_16x16)
+        assert isinstance(empty, float)
+        assert np.isfinite(empty)
+
+    def test_calc_empty_prediction_all_masked(self, arch, image_16x16, patch_strategy_2x2) -> None:
+        """All tokens masked → logits [0, 0] → softmax 0.5 for class 0."""
+        arch.prepare(image_16x16, patch_strategy_2x2)
+        empty = arch.calc_empty_prediction(image_16x16)
+        # visible=0 → logits (0, 0) → softmax (0.5, 0.5)
+        assert empty == pytest.approx(0.5, abs=1e-5)
+
+    def test_works_inside_image_imputer(self, image_16x16, patch_strategy_2x2) -> None:
+        arch = ViTArchitecture(
+            model=_MockViTWithConfig(),
+            processor=_MockImageProcessor(),
+            masking_strategy=BoolMaskedPosStrategy(),
+        )
+        imputer = ImageImputer(
+            architecture=arch,
+            image=image_16x16,
+            player_strategy=patch_strategy_2x2,
+        )
+        assert imputer.n_players == 4
+        out = imputer.value_function(np.eye(4, dtype=bool))
+        assert out.shape == (4,)
+        assert np.isfinite(out).all()
+
+    def test_works_with_mask_token_strategy(self, image_16x16, patch_strategy_2x2) -> None:
+        """ViTArchitecture + MaskTokenStrategy runs through ImageImputer end-to-end.
+
+        ``_MockViTWithConfig`` exposes ``vit.embeddings.mask_token`` and
+        ``config.hidden_size``, satisfying ``MaskTokenStrategy``'s requirements.
+        """
+        arch = ViTArchitecture(
+            model=_MockViTWithConfig(),
+            processor=_MockImageProcessor(),
+            masking_strategy=MaskTokenStrategy(),
+        )
+        imputer = ImageImputer(
+            architecture=arch,
+            image=image_16x16,
+            player_strategy=patch_strategy_2x2,
+        )
+        assert imputer.n_players == 4
+        out = imputer.value_function(np.eye(4, dtype=bool))
+        assert out.shape == (4,)
+        assert np.isfinite(out).all()
+        # Monotonicity: more visible tokens → higher class-0 probability.
+        coalitions = np.array(
+            [
+                [False, False, False, False],
+                [True, False, False, False],
+                [True, True, True, False],
+                [True, True, True, True],
+            ]
+        )
+        vals = imputer.value_function(coalitions)
+        assert vals[0] < vals[1] < vals[2] < vals[3]
