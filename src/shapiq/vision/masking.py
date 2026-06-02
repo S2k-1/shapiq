@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import numpy as np
 
@@ -379,8 +379,8 @@ class LatentMaskingStrategy(ABC):
 def _extract_model_logits(output: object) -> torch.Tensor | np.ndarray:
     """Return logits from a model output or a bare logits array."""
     if hasattr(output, "logits"):
-        return output.logits
-    return output
+        return cast("torch.Tensor | np.ndarray", output.logits)
+    return cast("torch.Tensor | np.ndarray", output)
 
 
 class BoolMaskedPosStrategy(LatentMaskingStrategy):
@@ -429,12 +429,15 @@ class MaskTokenStrategy(LatentMaskingStrategy):
     def predict_logits(
         self,
         model: Model,
-        pixel_values: torch.Tensor,
-        bool_masks: torch.Tensor,
-    ) -> torch.Tensor:
+        pixel_values: torch.Tensor | np.ndarray,
+        bool_masks: torch.Tensor | np.ndarray,
+    ) -> torch.Tensor | np.ndarray:
         """Run the model with zero mask-token masking and return logits."""
         import torch
 
+        if not isinstance(pixel_values, torch.Tensor) or not isinstance(bool_masks, torch.Tensor):
+            msg = "MaskTokenStrategy requires torch.Tensor inputs."
+            raise TypeError(msg)
         model.vit.embeddings.mask_token = torch.nn.Parameter(
             torch.zeros(1, 1, model.config.hidden_size)
         )

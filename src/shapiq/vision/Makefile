@@ -6,12 +6,12 @@
 #
 # Code quality uses the same pre-commit hooks as .github/workflows/ci.yml,
 # scoped to vision library code, tests, and this Makefile.
-# The ty hook is omitted here because it ignores --files and checks all of
-# src/shapiq; run `uv run pre-commit run ty --all-files` for a full-repo check.
+# The ty hook in pre-commit checks all of src/shapiq, use `make typecheck` for vision only.
 
 ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))/../../..)
 VISION_SRC := src/shapiq/vision
 VISION_TESTS := tests/shapiq/tests_unit/tests_vision
+VISION_PY := $(wildcard $(ROOT)/$(VISION_SRC)/*.py)
 VISION_QUALITY_FILES := $(shell git -C $(ROOT) ls-files \
 	$(VISION_SRC)/*.py \
 	$(VISION_SRC)/Makefile \
@@ -25,14 +25,14 @@ PRE_COMMIT := uv run pre-commit
 
 help:
 	@echo "Vision package targets:"
-	@echo "  check      Run pre-commit (vision code/tests) and unit tests"
+	@echo "  check      Run pre-commit, ty, and unit tests"
 	@echo "  quality    Run pre-commit hooks on tracked vision files"
 	@echo "  fix        Run pre-commit hooks and apply auto-fixes"
-	@echo "  typecheck  Run ty on the full repo (same hook as main CI)"
+	@echo "  typecheck  Run ty on vision library modules"
 	@echo "  test       Run all vision unit tests"
 	@echo "  test-cov   Run vision tests with coverage for shapiq.vision"
 
-check: quality test
+check: quality typecheck test
 
 quality:
 	cd $(ROOT) && $(PRE_COMMIT_SKIP_TY) $(PRE_COMMIT) run \
@@ -42,7 +42,7 @@ fix:
 	cd $(ROOT) && $(PRE_COMMIT_SKIP_TY) $(PRE_COMMIT) run --files $(VISION_QUALITY_FILES)
 
 typecheck:
-	cd $(ROOT) && $(PRE_COMMIT) run ty --all-files
+	cd $(ROOT) && uv run ty check $(VISION_PY)
 
 test:
 	cd $(ROOT) && $(PYTEST) $(VISION_TESTS)

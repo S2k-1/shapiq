@@ -248,7 +248,14 @@ convention = "google"
 
 [tool.ty.src]
 include = ["src/shapiq"]
-exclude = ["tests", "docs", "benchmark", "scripts", "src/shapiq_games"]
+exclude = [
+    "tests",
+    "docs",
+    "benchmark",
+    "scripts",
+    "src/shapiq_games",
+    "src/shapiq/vision/**/*.ipynb",
+]
 
 [tool.ty.environment]
 python-version = "3.12"

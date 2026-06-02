@@ -173,8 +173,9 @@ class CustomMasksStrategy(PixelPlayerStrategy):
         self._masks = np.asarray(masks, dtype=bool)
         _require_positive_int("n_players", self._masks.shape[0])
 
-    def get_masks(self, _image: np.ndarray) -> np.ndarray:
+    def get_masks(self, image: np.ndarray) -> np.ndarray:
         """Return the pre-computed masks (image argument is ignored)."""
+        del image
         return self._masks
 
     @property
@@ -273,7 +274,9 @@ class SuperpixelStrategy(PixelPlayerStrategy):
         self.n_segments = n_segments
         self._algorithm = algorithm
         self._custom_mask: np.ndarray | None = None
-        self._n_players: int = n_segments if mask is None else 0
+        self._n_players = 0
+        if mask is None:
+            self._n_players = n_segments if n_segments is not None else 0
         if mask is not None:
             self.set_mask(mask)
 
@@ -334,15 +337,20 @@ class SuperpixelStrategy(PixelPlayerStrategy):
                 raise ValueError(msg)
             return self._custom_mask
 
+        n_segments = self.n_segments
+        if n_segments is None:
+            msg = "n_segments must be set before running SLIC."
+            raise RuntimeError(msg)
+
         from skimage.segmentation import slic
 
         slic_zero = self._algorithm == "slico"
-        superpixels = slic(image, n_segments=self.n_segments, start_label=1, slic_zero=slic_zero)
+        superpixels = slic(image, n_segments=n_segments, start_label=1, slic_zero=slic_zero)
         n_superpixels = len(np.unique(superpixels))
 
-        if n_superpixels < self.n_segments:
-            iteration, n_segments_iter = 0, self.n_segments
-            while iteration < 20 and n_superpixels < self.n_segments:
+        if n_superpixels < n_segments:
+            iteration, n_segments_iter = 0, n_segments
+            while iteration < 20 and n_superpixels < n_segments:
                 n_segments_iter += 1
                 superpixels = slic(
                     image,
@@ -353,15 +361,15 @@ class SuperpixelStrategy(PixelPlayerStrategy):
                 n_superpixels = len(np.unique(superpixels))
                 iteration += 1
 
-        if n_superpixels < self.n_segments:
+        if n_superpixels < n_segments:
             warnings.warn(
                 f"SLIC could only produce {n_superpixels} superpixels for the requested "
-                f"{self.n_segments}. Using {n_superpixels} players instead.",
+                f"{n_segments}. Using {n_superpixels} players instead.",
                 stacklevel=2,
             )
-        elif n_superpixels > self.n_segments:
+        elif n_superpixels > n_segments:
             warnings.warn(
-                f"SLIC produced {n_superpixels} superpixels (requested {self.n_segments}). "
+                f"SLIC produced {n_superpixels} superpixels (requested {n_segments}). "
                 f"Using all {n_superpixels} segments as players.",
                 stacklevel=2,
             )

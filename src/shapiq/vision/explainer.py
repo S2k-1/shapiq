@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from shapiq.explainer.base import Explainer
 from shapiq.explainer.configuration import setup_approximator
@@ -94,17 +94,20 @@ class ImageExplainer(Explainer):
         )
 
     def explain_function(
-        self, _x: np.ndarray | None = None, *, budget: int = 64
+        self, x: np.ndarray | None = None, *args: Any, **kwargs: Any
     ) -> InteractionValues:
         """Compute interaction values for the image.
 
         Args:
-            _x: Unused; the image was provided at construction time.
-            budget: Number of model evaluations (coalitions) to use.
+            x: Unused; the image was provided at construction time.
+            args: Unused positional arguments for API compatibility.
+            kwargs: Optional keyword arguments; supports ``budget`` (default ``64``).
 
         Returns:
             The computed interaction values.
         """
+        del x, args
+        budget = int(kwargs.get("budget", 64))
         interaction_values = self.approximator.approximate(budget=budget, game=self.imputer)
         interaction_values.baseline_value = self.baseline_value
         if is_empty_value_the_baseline(interaction_values.index):

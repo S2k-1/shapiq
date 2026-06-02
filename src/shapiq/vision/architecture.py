@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import numpy as np
 
@@ -31,7 +31,7 @@ from .utils import get_torch_device, normalize_pixel_values, softmax_numpy, tens
 MaskingStrategy = PixelMaskingStrategy | LatentMaskingStrategy | ManifoldMaskingStrategy
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
+    from collections.abc import Callable, Mapping, Sequence
     from typing import Any
 
     import torch
@@ -50,9 +50,47 @@ def _extract_hf_features(output: torch.Tensor | object) -> torch.Tensor:
 
     if isinstance(output, torch.Tensor):
         return output
-    if hasattr(output, "pooler_output") and output.pooler_output is not None:
-        return output.pooler_output
-    return output.last_hidden_state[:, 0]
+    pooler_output = getattr(output, "pooler_output", None)
+    if pooler_output is not None:
+        return cast("torch.Tensor", pooler_output)
+    last_hidden_state = getattr(output, "last_hidden_state", None)
+    if last_hidden_state is None:
+        msg = "Expected a tensor or HuggingFace model output with hidden states."
+        raise TypeError(msg)
+    return cast("torch.Tensor", last_hidden_state)[:, 0]
+
+
+def _require_prepared_masks(player_masks: np.ndarray | None) -> np.ndarray:
+    """Return cached player masks or raise if ``prepare()`` was not called."""
+    if player_masks is None:
+        msg = "prepare() must be called before running the value function."
+        raise RuntimeError(msg)
+    return player_masks
+
+
+def _apply_pixel_masking(
+    masking: MaskingStrategy,
+    image: np.ndarray,
+    player_masks: np.ndarray,
+    coalitions: np.ndarray,
+) -> np.ndarray:
+    """Apply a pixel-space masking strategy."""
+    if not isinstance(masking, PixelMaskingStrategy):
+        msg = "Expected a pixel-space masking strategy."
+        raise TypeError(msg)
+    return masking.apply(image, player_masks, coalitions)
+
+
+def _processor_pixel_values(processor_output: object, device: torch.device) -> torch.Tensor:
+    """Extract ``pixel_values`` from a HuggingFace processor batch."""
+    batch = cast("Mapping[str, torch.Tensor]", processor_output)
+    return batch["pixel_values"].to(device)
+
+
+def _processor_inputs(processor_output: object, device: torch.device) -> dict[str, torch.Tensor]:
+    """Move all tensors in a HuggingFace processor batch to ``device``."""
+    batch = cast("Mapping[str, torch.Tensor]", processor_output)
+    return {key: value.to(device) for key, value in batch.items()}
 
 
 def _build_patch_pixel_masks(image: np.ndarray, player_strategy: PatchStrategy) -> np.ndarray:
@@ -142,18 +180,22 @@ class ResNetArchitecture(ModelArchitectureStrategy):
         """Return the default mean-color masking strategy."""
         return MeanColorMasking()
 
-    def prepare(self, image: np.ndarray, player_strategy: PixelPlayerStrategy) -> None:
+    def prepare(self, image: np.ndarray, player_strategy: PlayerStrategy) -> None:
         """Precompute player masks for the given image."""
+        if not isinstance(player_strategy, PixelPlayerStrategy):
+            msg = "ResNetArchitecture requires a pixel-space player strategy."
+            raise TypeError(msg)
         self._player_masks = player_strategy.get_masks(image)
 
     def value_function(self, image: np.ndarray, coalitions: np.ndarray) -> np.ndarray:
         """Apply pixel masking and return model predictions for each coalition."""
-        masked = self._masking_strategy.apply(image, self._player_masks, coalitions)
+        player_masks = _require_prepared_masks(self._player_masks)
+        masked = _apply_pixel_masking(self._masking_strategy, image, player_masks, coalitions)
         return np.asarray(self.model(masked)).reshape(-1)
 
     def calc_empty_prediction(self, image: np.ndarray) -> float:
         """Return the model prediction for the empty coalition."""
-        n = self._player_masks.shape[0]
+        n = _require_prepared_masks(self._player_masks).shape[0]
         return float(self.value_function(image, np.zeros((1, n), dtype=bool))[0])
 
 
@@ -163,7 +205,7 @@ class ViTArchitecture(ModelArchitectureStrategy):
     def __init__(
         self,
         model: Model,
-        processor: object,
+        processor: Callable[..., object],
         masking_strategy: LatentMaskingStrategy | None = None,
     ) -> None:
         """Initialize the ViTArchitecture.
@@ -191,39 +233,56 @@ class ViTArchitecture(ModelArchitectureStrategy):
         # ViTForImageClassification has mask_token=None by default; MaskTokenStrategy initialises it
         return MaskTokenStrategy()
 
-    def prepare(self, image: np.ndarray, player_strategy: LatentPlayerStrategy) -> None:
+    def prepare(self, image: np.ndarray, player_strategy: PlayerStrategy) -> None:
         """Pre-process the image and cache pixel values and the predicted class."""
         import torch
 
+        if not isinstance(player_strategy, LatentPlayerStrategy):
+            msg = "ViTArchitecture requires a latent-space player strategy."
+            raise TypeError(msg)
         self._player_strategy_ref = player_strategy
         device = get_torch_device(self.model)
         inputs = self.processor(images=image, return_tensors="pt")
-        self._pixel_values = inputs["pixel_values"].to(device)
+        self._pixel_values = _processor_pixel_values(inputs, device)
         with torch.no_grad():
             logits = self.model(pixel_values=self._pixel_values).logits
         self._class_id = int(logits.argmax(-1).item())
         if isinstance(player_strategy, PatchStrategy):
             self._player_masks = _build_patch_pixel_masks(image, player_strategy)
 
-    def value_function(self, _image: np.ndarray, coalitions: np.ndarray) -> np.ndarray:
+    def value_function(self, image: np.ndarray, coalitions: np.ndarray) -> np.ndarray:
         """Apply latent masking and return class probabilities for each coalition."""
+        del image
         import torch
 
         if coalitions.ndim == 1:
             coalitions = coalitions.reshape(1, -1)
+        if (
+            self._pixel_values is None
+            or self._player_strategy_ref is None
+            or self._class_id is None
+        ):
+            msg = "prepare() must be called before running the value function."
+            raise RuntimeError(msg)
         device = self._pixel_values.device
         bool_masks = torch.stack(
             [self._player_strategy_ref.get_latent_mask(c) for c in coalitions]
         ).to(device)
+        if not isinstance(self._masking_strategy, LatentMaskingStrategy):
+            msg = "ViTArchitecture requires a latent-space masking strategy."
+            raise TypeError(msg)
         with torch.no_grad():
             logits = self._masking_strategy.predict_logits(
                 self.model, self._pixel_values, bool_masks
             )
-            probs = torch.softmax(logits, dim=-1)
+            probs = torch.softmax(cast("torch.Tensor", logits), dim=-1)
         return tensor_to_numpy(probs[:, self._class_id])
 
     def calc_empty_prediction(self, image: np.ndarray) -> float:
         """Return the model prediction for the empty coalition."""
+        if self._player_strategy_ref is None:
+            msg = "prepare() must be called before running the value function."
+            raise RuntimeError(msg)
         n = self._player_strategy_ref.n_players
         return float(self.value_function(image, np.zeros((1, n), dtype=bool))[0])
 
@@ -293,24 +352,31 @@ class LayerMaskedCNNArchitecture(ModelArchitectureStrategy):
         """Return the default layer-masking strategy (hooks ``layer2``)."""
         return LayerMasking(layer_name="layer2")
 
-    def prepare(self, image: np.ndarray, player_strategy: PixelPlayerStrategy) -> None:
+    def prepare(self, image: np.ndarray, player_strategy: PlayerStrategy) -> None:
         """Precompute player masks for the given image."""
+        if not isinstance(player_strategy, PixelPlayerStrategy):
+            msg = "LayerMaskedCNNArchitecture requires a pixel-space player strategy."
+            raise TypeError(msg)
         self._player_masks = player_strategy.get_masks(image)
 
     def value_function(self, image: np.ndarray, coalitions: np.ndarray) -> np.ndarray:
         """Delegate to the manifold masking strategy."""
+        player_masks = _require_prepared_masks(self._player_masks)
+        if not isinstance(self._masking_strategy, ManifoldMaskingStrategy):
+            msg = "LayerMaskedCNNArchitecture requires a manifold masking strategy."
+            raise TypeError(msg)
         return self._masking_strategy.value_function(
             self.model,
             self.preprocess,
             image,
-            self._player_masks,
+            player_masks,
             coalitions,
             self.class_id,
         )
 
     def calc_empty_prediction(self, image: np.ndarray) -> float:
         """Return the model prediction for the empty coalition."""
-        n = self._player_masks.shape[0]
+        n = _require_prepared_masks(self._player_masks).shape[0]
         return float(self.value_function(image, np.zeros((1, n), dtype=bool))[0])
 
 
@@ -335,7 +401,7 @@ class HuggingFacePixelArchitecture(ModelArchitectureStrategy):
     def __init__(
         self,
         model: Model,
-        processor: object,
+        processor: Callable[..., object],
         class_id: int | None = None,
         masking_strategy: PixelMaskingStrategy | None = None,
     ) -> None:
@@ -361,15 +427,18 @@ class HuggingFacePixelArchitecture(ModelArchitectureStrategy):
         """Return the default mean-color masking strategy."""
         return MeanColorMasking()
 
-    def prepare(self, image: np.ndarray, player_strategy: PixelPlayerStrategy) -> None:
+    def prepare(self, image: np.ndarray, player_strategy: PlayerStrategy) -> None:
         """Precompute player masks and auto-detect class ID if not set."""
         import torch
 
+        if not isinstance(player_strategy, PixelPlayerStrategy):
+            msg = "HuggingFacePixelArchitecture requires a pixel-space player strategy."
+            raise TypeError(msg)
         self._player_masks = player_strategy.get_masks(image)
         if self.class_id is None:
             device = get_torch_device(self.model)
             inputs = self.processor(images=image, return_tensors="pt")
-            pixel_values = inputs["pixel_values"].to(device)
+            pixel_values = _processor_pixel_values(inputs, device)
             with torch.no_grad():
                 logits = self.model(pixel_values=pixel_values).logits
             self.class_id = int(logits.argmax(-1).item())
@@ -377,9 +446,12 @@ class HuggingFacePixelArchitecture(ModelArchitectureStrategy):
     def _predict_batch(self, batch: np.ndarray) -> np.ndarray:
         import torch
 
+        if self.class_id is None:
+            msg = "prepare() must be called before running the value function."
+            raise RuntimeError(msg)
         device = get_torch_device(self.model)
         inputs = self.processor(images=[np.asarray(img) for img in batch], return_tensors="pt")
-        pixel_values = inputs["pixel_values"].to(device)
+        pixel_values = _processor_pixel_values(inputs, device)
         with torch.no_grad():
             logits = self.model(pixel_values=pixel_values).logits
             probs = torch.softmax(logits, dim=-1)
@@ -387,12 +459,13 @@ class HuggingFacePixelArchitecture(ModelArchitectureStrategy):
 
     def value_function(self, image: np.ndarray, coalitions: np.ndarray) -> np.ndarray:
         """Apply pixel masking and return class probabilities for each coalition."""
-        masked = self._masking_strategy.apply(image, self._player_masks, coalitions)
+        player_masks = _require_prepared_masks(self._player_masks)
+        masked = _apply_pixel_masking(self._masking_strategy, image, player_masks, coalitions)
         return self._predict_batch(masked)
 
     def calc_empty_prediction(self, image: np.ndarray) -> float:
         """Return the model prediction for the empty coalition."""
-        n = self._player_masks.shape[0]
+        n = _require_prepared_masks(self._player_masks).shape[0]
         return float(self.value_function(image, np.zeros((1, n), dtype=bool))[0])
 
 
@@ -429,7 +502,7 @@ class DINOv2Architecture(ModelArchitectureStrategy):
     def __init__(
         self,
         model: Model,
-        processor: object,
+        processor: Callable[..., object],
         masking_strategy: PixelMaskingStrategy | None = None,
     ) -> None:
         """Initialize the DINOv2Architecture.
@@ -458,27 +531,34 @@ class DINOv2Architecture(ModelArchitectureStrategy):
 
         device = get_torch_device(self.model)
         inputs = self.processor(images=[np.asarray(img) for img in batch], return_tensors="pt")
-        pixel_values = inputs["pixel_values"].to(device)
+        pixel_values = _processor_pixel_values(inputs, device)
         with torch.no_grad():
             out = self.model(pixel_values=pixel_values)
         emb = _extract_hf_features(out)
         return emb / emb.norm(dim=-1, keepdim=True)
 
-    def prepare(self, image: np.ndarray, player_strategy: PixelPlayerStrategy) -> None:
+    def prepare(self, image: np.ndarray, player_strategy: PlayerStrategy) -> None:
         """Precompute player masks and reference embedding for the image."""
+        if not isinstance(player_strategy, PixelPlayerStrategy):
+            msg = "DINOv2Architecture requires a pixel-space player strategy."
+            raise TypeError(msg)
         self._player_masks = player_strategy.get_masks(image)
         self._reference_embedding = self._embed(image[np.newaxis])[0]
 
     def value_function(self, image: np.ndarray, coalitions: np.ndarray) -> np.ndarray:
         """Apply pixel masking and return cosine similarity scores for each coalition."""
-        masked = self._masking_strategy.apply(image, self._player_masks, coalitions)
+        player_masks = _require_prepared_masks(self._player_masks)
+        masked = _apply_pixel_masking(self._masking_strategy, image, player_masks, coalitions)
         emb = self._embed(masked)
+        if self._reference_embedding is None:
+            msg = "prepare() must be called before running the value function."
+            raise RuntimeError(msg)
         sims = emb @ self._reference_embedding
         return tensor_to_numpy(sims)
 
     def calc_empty_prediction(self, image: np.ndarray) -> float:
         """Return the model prediction for the empty coalition."""
-        n = self._player_masks.shape[0]
+        n = _require_prepared_masks(self._player_masks).shape[0]
         return float(self.value_function(image, np.zeros((1, n), dtype=bool))[0])
 
 
@@ -502,7 +582,7 @@ class CLIPArchitecture(ModelArchitectureStrategy):
     def __init__(
         self,
         model: Model,
-        processor: object,
+        processor: Callable[..., object],
         text_prompts: Sequence[str],
         target_prompt_idx: int = 0,
         masking_strategy: PixelMaskingStrategy | None = None,
@@ -533,14 +613,17 @@ class CLIPArchitecture(ModelArchitectureStrategy):
         """Return the default mean-color masking strategy."""
         return MeanColorMasking()
 
-    def prepare(self, image: np.ndarray, player_strategy: PixelPlayerStrategy) -> None:
+    def prepare(self, image: np.ndarray, player_strategy: PlayerStrategy) -> None:
         """Precompute player masks and text features for the configured prompts."""
         import torch
 
+        if not isinstance(player_strategy, PixelPlayerStrategy):
+            msg = "CLIPArchitecture requires a pixel-space player strategy."
+            raise TypeError(msg)
         self._player_masks = player_strategy.get_masks(image)
         device = get_torch_device(self.model)
         text_inputs = self.processor(text=self.text_prompts, return_tensors="pt", padding=True)
-        text_inputs = {key: value.to(device) for key, value in text_inputs.items()}
+        text_inputs = _processor_inputs(text_inputs, device)
         with torch.no_grad():
             tf = _extract_hf_features(self.model.get_text_features(**text_inputs))
             self._text_features = torch.nn.functional.normalize(tf, dim=-1)
@@ -549,12 +632,16 @@ class CLIPArchitecture(ModelArchitectureStrategy):
         """Apply pixel masking and return CLIP similarity scores for each coalition."""
         import torch
 
-        masked = self._masking_strategy.apply(image, self._player_masks, coalitions)
+        player_masks = _require_prepared_masks(self._player_masks)
+        masked = _apply_pixel_masking(self._masking_strategy, image, player_masks, coalitions)
+        if self._text_features is None:
+            msg = "prepare() must be called before running the value function."
+            raise RuntimeError(msg)
         device = get_torch_device(self.model)
         image_inputs = self.processor(
             images=[np.asarray(img) for img in masked], return_tensors="pt"
         )
-        pixel_values = image_inputs["pixel_values"].to(device)
+        pixel_values = _processor_pixel_values(image_inputs, device)
         with torch.no_grad():
             f = _extract_hf_features(self.model.get_image_features(pixel_values=pixel_values))
             f = torch.nn.functional.normalize(f, dim=-1)
@@ -564,7 +651,7 @@ class CLIPArchitecture(ModelArchitectureStrategy):
 
     def calc_empty_prediction(self, image: np.ndarray) -> float:
         """Return the model prediction for the empty coalition."""
-        n = self._player_masks.shape[0]
+        n = _require_prepared_masks(self._player_masks).shape[0]
         return float(self.value_function(image, np.zeros((1, n), dtype=bool))[0])
 
 
@@ -629,41 +716,62 @@ class CustomViTArchitecture(ModelArchitectureStrategy):
         """Return the default bool-masked-pos masking strategy."""
         return BoolMaskedPosStrategy()
 
-    def prepare(self, _image: np.ndarray, player_strategy: LatentPlayerStrategy) -> None:
+    def prepare(self, image: np.ndarray, player_strategy: PlayerStrategy) -> None:
         """Cache the player strategy reference and align pixel values with the model device."""
+        del image
+        if not isinstance(player_strategy, LatentPlayerStrategy):
+            msg = "CustomViTArchitecture requires a latent-space player strategy."
+            raise TypeError(msg)
         if self._uses_torch:
+            import torch
+
+            if not isinstance(self._pixel_values, torch.Tensor):
+                msg = "Expected torch pixel values for a torch-backed model."
+                raise TypeError(msg)
             device = get_torch_device(self.model)
             self._pixel_values = self._pixel_values.to(device)
         self._player_strategy_ref = player_strategy
 
-    def value_function(self, _image: np.ndarray, coalitions: np.ndarray) -> np.ndarray:
+    def value_function(self, image: np.ndarray, coalitions: np.ndarray) -> np.ndarray:
         """Apply latent masking and return class probabilities for each coalition."""
+        del image
+        if self._player_strategy_ref is None:
+            msg = "prepare() must be called before running the value function."
+            raise RuntimeError(msg)
         if coalitions.ndim == 1:
             coalitions = coalitions.reshape(1, -1)
+        if not isinstance(self._masking_strategy, LatentMaskingStrategy):
+            msg = "CustomViTArchitecture requires a latent-space masking strategy."
+            raise TypeError(msg)
+        masking = self._masking_strategy
 
         if self._uses_torch:
             import torch
 
+            if not isinstance(self._pixel_values, torch.Tensor):
+                msg = "Expected torch pixel values for a torch-backed model."
+                raise TypeError(msg)
             device = self._pixel_values.device
             bool_masks = torch.stack(
                 [self._player_strategy_ref.get_latent_mask(c) for c in coalitions]
             ).to(device)
             with torch.no_grad():
-                logits = self._masking_strategy.predict_logits(
-                    self.model, self._pixel_values, bool_masks
-                )
-                probs = torch.softmax(logits, dim=-1)
+                logits = masking.predict_logits(self.model, self._pixel_values, bool_masks)
+                probs = torch.softmax(cast("torch.Tensor", logits), dim=-1)
             return tensor_to_numpy(probs[:, self.class_id])
 
         bool_masks = np.stack(
             [self._player_strategy_ref.get_latent_mask_array(c) for c in coalitions]
         )
-        logits = self._masking_strategy.predict_logits(self.model, self._pixel_values, bool_masks)
+        logits = masking.predict_logits(self.model, self._pixel_values, bool_masks)
         probs = softmax_numpy(np.asarray(logits))
         return probs[:, self.class_id]
 
     def calc_empty_prediction(self, image: np.ndarray) -> float:
         """Return the model prediction for the empty coalition."""
+        if self._player_strategy_ref is None:
+            msg = "prepare() must be called before running the value function."
+            raise RuntimeError(msg)
         n = self._player_strategy_ref.n_players
         return float(self.value_function(image, np.zeros((1, n), dtype=bool))[0])
 
@@ -672,7 +780,7 @@ def get_architecture_for_model(
     model: Model,
     *,
     architecture: ModelArchitectureStrategy | None = None,
-    processor: object | None = None,
+    processor: Callable[..., object] | None = None,
     **kwargs: Any,
 ) -> ModelArchitectureStrategy:
     """Pick a default :class:`ModelArchitectureStrategy` for ``model``.

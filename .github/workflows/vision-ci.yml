@@ -37,5 +37,7 @@ jobs:
                     uv run pre-commit install
             -   name: Run vision code quality
                 run: make -C src/shapiq/vision quality
+            -   name: Run vision typecheck
+                run: make -C src/shapiq/vision typecheck
             -   name: Run vision tests
                 run: make -C src/shapiq/vision test

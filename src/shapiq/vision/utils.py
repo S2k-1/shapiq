@@ -209,12 +209,8 @@ def normalize_pixel_values(
     if torch is not None and isinstance(pixel_values, torch.Tensor):
         return pixel_values, True
 
-    try:
-        import jax
-    except ImportError:
-        jax = None  # type: ignore[assignment]
-
-    if jax is not None and isinstance(pixel_values, jax.Array):
+    pixel_module = getattr(type(pixel_values), "__module__", "")
+    if isinstance(pixel_module, str) and pixel_module.startswith("jax"):
         return np.asarray(pixel_values, dtype=np.float32), False
 
     return np.asarray(pixel_values, dtype=np.float32), False
