@@ -522,7 +522,7 @@ class CustomViTArchitecture(ModelArchitectureStrategy):
         """Return the default bool-masked-pos masking strategy."""
         return BoolMaskedPosStrategy()
 
-    def prepare(self, _image: np.ndarray, player_strategy: LatentPlayerStrategy) -> None:
+    def prepare(self, image: np.ndarray, player_strategy: LatentPlayerStrategy) -> None:
         """Cache the player strategy reference and align pixel values with the model device."""
         device = get_torch_device(self.model)
         self._pixel_values = self._pixel_values.to(device)

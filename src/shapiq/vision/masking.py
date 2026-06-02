@@ -264,9 +264,14 @@ class BoolMaskedPosStrategy(LatentMaskingStrategy):
 
         # ViTForImageClassification has mask_token=None by default, initialise it so the
         # embedding layer can replace masked patch tokens during the forward pass.
-        embeddings = model.vit.embeddings
-        if embeddings.mask_token is None:
-            embeddings.mask_token = torch.nn.Parameter(torch.zeros(1, 1, model.config.hidden_size))
+        # Custom ViT models may not expose the HuggingFace ``vit.embeddings`` layout.
+        vit = getattr(model, "vit", None)
+        if vit is not None:
+            embeddings = vit.embeddings
+            if embeddings.mask_token is None:
+                embeddings.mask_token = torch.nn.Parameter(
+                    torch.zeros(1, 1, model.config.hidden_size)
+                )
         batch = pixel_values.repeat(bool_masks.shape[0], 1, 1, 1)
         return model(pixel_values=batch, bool_masked_pos=bool_masks).logits
 
