@@ -1,20 +1,20 @@
 """Framework-agnostic callable interface tests for the vision package.
 
-The pixel-space masking pipeline (ResNetArchitecture + pixel maskers) is designed
-to work with **any** model callable that accepts a numpy ``(B, H, W, C)`` array and
-returns a numpy-compatible ``(B,)`` array of scores.  No ML framework (PyTorch, JAX,
-TensorFlow, …) is required at the imputer or architecture level; only the callable
-the user supplies needs to understand the input format.
+The pixel-space masking pipeline (ResNetArchitecture + pixel maskers) and the
+custom ViT latent pipeline (CustomViTArchitecture + BoolMaskedPosStrategy) are
+designed to work with **any** model callable that accepts the expected inputs and
+returns numpy-compatible outputs.  No ML framework (PyTorch, JAX, TensorFlow, …)
+is required at the imputer or architecture level; only the callable the user
+supplies needs to understand the input format.
 
-The latent-space pipeline (ViTArchitecture, BoolMaskedPosStrategy, …) is intentionally
-PyTorch-specific because it integrates with HuggingFace Transformers conventions.
-Users who have JAX/Flax ViT models should subclass ``ModelArchitectureStrategy`` and
-implement ``value_function`` with their own tensor handling.
+HuggingFace-centric latent paths (ViTArchitecture, MaskTokenStrategy, CLIP, DINOv2)
+remain PyTorch-specific because they integrate with Transformers conventions.
 
 These tests verify:
 1. No ``torch`` appears in the module-level namespace of any vision module.
 2. A pure-numpy callable works end-to-end through ``ImageImputer``.
-3. (skip if jax absent) A JAX callable produces identical results to the numpy equivalent.
+3. A numpy-array CustomViT callable works end-to-end through ``ImageImputer``.
+4. (skip if jax absent) JAX callables produce identical results on pixel and latent paths.
 """
 
 from __future__ import annotations
@@ -25,10 +25,10 @@ import numpy as np
 import pytest
 
 import shapiq.vision.explainer  # noqa: F401 — ensure module is in sys.modules for namespace check
-from shapiq.vision.architecture import ResNetArchitecture
+from shapiq.vision.architecture import CustomViTArchitecture, ResNetArchitecture
 from shapiq.vision.imputer import ImageImputer
 from shapiq.vision.masking import MeanColorMasking, ZeroMasking
-from shapiq.vision.players import GridStrategy
+from shapiq.vision.players import GridStrategy, PatchStrategy
 from tests.shapiq.markers import skip_if_no_jax
 
 # ---------------------------------------------------------------------------
@@ -137,7 +137,6 @@ class TestNumpyCallableModel:
         arch = ResNetArchitecture(model=model, masking_strategy=ZeroMasking())
         imputer = ImageImputer(arch, image, player_strategy=_two_by_two_grid())
 
-        empty_coal = np.zeros((1, 4), dtype=bool)
         raw_empty = imputer.architecture.calc_empty_prediction(image)
         assert abs(raw_empty) < 1e-6
 
@@ -262,3 +261,148 @@ class TestJaxCallableModel:
         assert np.isfinite(values).all()
         # All probabilities lie in [0, 1] after normalization shift
         assert values.min() >= -1.0 and values.max() <= 1.0
+
+
+# ---------------------------------------------------------------------------
+# 4. Numpy latent callable (CustomViTArchitecture)
+# ---------------------------------------------------------------------------
+
+
+class TestNumpyLatentCallableModel:
+    """Custom ViT latent path works with numpy pixel values and callables."""
+
+    @staticmethod
+    def _numpy_vit_model(pixel_values: np.ndarray, bool_masked_pos: np.ndarray) -> np.ndarray:
+        visible = (~bool_masked_pos).sum(axis=1).astype(np.float64)
+        return np.stack([visible, -visible], axis=1)
+
+    def test_custom_vit_value_function_shape(self) -> None:
+        arch = CustomViTArchitecture(
+            model=self._numpy_vit_model,
+            pixel_values=np.zeros((1, 3, 4, 4), dtype=np.float32),
+            class_id=0,
+            n_tokens=4,
+        )
+        strategy = PatchStrategy(grid_size=2, n_players=4)
+        image = _tiny_image(4, 4)
+        arch.prepare(image, strategy)
+        coalitions = np.array(
+            [
+                [False, False, False, False],
+                [True, False, False, False],
+                [True, True, False, False],
+                [True, True, True, True],
+            ],
+            dtype=bool,
+        )
+        values = arch.value_function(image, coalitions)
+        assert values.shape == (4,)
+        assert np.isfinite(values).all()
+        assert values[0] < values[1] < values[2] < values[3]
+
+    def test_custom_vit_works_inside_image_imputer(self) -> None:
+        arch = CustomViTArchitecture(
+            model=self._numpy_vit_model,
+            pixel_values=np.zeros((1, 3, 4, 4), dtype=np.float32),
+            class_id=0,
+            n_tokens=4,
+        )
+        imputer = ImageImputer(
+            architecture=arch,
+            image=_tiny_image(4, 4),
+            player_strategy=PatchStrategy(grid_size=2, n_players=4),
+            normalize=False,
+        )
+        values = imputer.value_function(_coalitions_4())
+        assert values.shape == (4,)
+        assert np.isfinite(values).all()
+
+
+@skip_if_no_jax
+class TestJaxLatentCallableModel:
+    """Custom ViT latent path works with JAX callables via numpy I/O."""
+
+    @staticmethod
+    def _jax_vit_model(pixel_values: np.ndarray, bool_masked_pos: np.ndarray) -> np.ndarray:
+        import jax.numpy as jnp
+
+        visible = (~jnp.asarray(bool_masked_pos)).sum(axis=1).astype(jnp.float32)
+        return np.asarray(jnp.stack([visible, -visible], axis=1))
+
+    @staticmethod
+    def _numpy_vit_model(pixel_values: np.ndarray, bool_masked_pos: np.ndarray) -> np.ndarray:
+        visible = (~bool_masked_pos).sum(axis=1).astype(np.float64)
+        return np.stack([visible, -visible], axis=1)
+
+    def test_jax_latent_matches_numpy_logic(self) -> None:
+        image = _tiny_image(4, 4)
+        coalitions = _coalitions_4()
+        strategy = PatchStrategy(grid_size=2, n_players=4)
+
+        arch_np = CustomViTArchitecture(
+            model=self._numpy_vit_model,
+            pixel_values=np.zeros((1, 3, 4, 4), dtype=np.float32),
+            class_id=0,
+            n_tokens=4,
+        )
+        arch_jax = CustomViTArchitecture(
+            model=self._jax_vit_model,
+            pixel_values=np.zeros((1, 3, 4, 4), dtype=np.float32),
+            class_id=0,
+            n_tokens=4,
+        )
+        arch_np.prepare(image, strategy)
+        arch_jax.prepare(image, strategy)
+
+        np.testing.assert_allclose(
+            arch_np.value_function(image, coalitions),
+            arch_jax.value_function(image, coalitions),
+            rtol=1e-5,
+        )
+
+    def test_jax_latent_flax_vit_style_callable(self) -> None:
+        import jax
+        import jax.numpy as jnp
+
+        try:
+            import flax.linen as nn
+        except ImportError:
+            pytest.skip("flax is not installed")
+
+        class TinyViT(nn.Module):
+            n_classes: int = 2
+
+            @nn.compact
+            def __call__(self, pixel_values, bool_masked_pos=None):
+                del pixel_values
+                visible = (~bool_masked_pos).sum(axis=1).astype(jnp.float32)
+                return jnp.stack([visible, -visible], axis=1)
+
+        rng = jax.random.PRNGKey(0)
+        dummy_pixels = jnp.ones((1, 3, 4, 4), dtype=jnp.float32)
+        dummy_masks = jnp.zeros((1, 4), dtype=bool)
+        model = TinyViT()
+        params = model.init(rng, dummy_pixels, bool_masked_pos=dummy_masks)
+
+        def flax_vit_callable(pixel_values: np.ndarray, bool_masked_pos: np.ndarray) -> np.ndarray:
+            logits = model.apply(
+                params,
+                jnp.asarray(pixel_values),
+                bool_masked_pos=jnp.asarray(bool_masked_pos),
+            )
+            return np.asarray(logits)
+
+        arch = CustomViTArchitecture(
+            model=flax_vit_callable,
+            pixel_values=np.zeros((1, 3, 4, 4), dtype=np.float32),
+            class_id=0,
+            n_tokens=4,
+        )
+        imputer = ImageImputer(
+            architecture=arch,
+            image=_tiny_image(4, 4),
+            player_strategy=PatchStrategy(grid_size=2, n_players=4),
+        )
+        values = imputer.value_function(_coalitions_4())
+        assert values.shape == (4,)
+        assert np.isfinite(values).all()

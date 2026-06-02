@@ -62,9 +62,7 @@ def is_image_like(data: object) -> bool:
             if rows == cols:
                 return True
             smaller, larger = sorted((rows, cols))
-            if smaller <= 64 and larger / smaller > 2:
-                return False
-            return True
+            return not (smaller <= 64 and larger / smaller > 2)
     return False
 
 
@@ -189,6 +187,37 @@ def get_torch_device(obj: object) -> torch.device:
 def tensor_to_numpy(tensor: torch.Tensor) -> np.ndarray:
     """Convert a PyTorch tensor to a numpy array, copying from GPU when needed."""
     return tensor.detach().cpu().numpy()
+
+
+def softmax_numpy(logits: np.ndarray, *, axis: int = -1) -> np.ndarray:
+    """Compute a numerically stable softmax along ``axis``."""
+    logits = np.asarray(logits, dtype=np.float64)
+    shifted = logits - np.max(logits, axis=axis, keepdims=True)
+    exp = np.exp(shifted)
+    return exp / np.sum(exp, axis=axis, keepdims=True)
+
+
+def normalize_pixel_values(
+    pixel_values: np.ndarray | torch.Tensor,
+) -> tuple[np.ndarray | torch.Tensor, bool]:
+    """Return ``(values, uses_torch)`` for pre-processed ViT inputs."""
+    try:
+        import torch
+    except ImportError:
+        torch = None  # type: ignore[assignment]
+
+    if torch is not None and isinstance(pixel_values, torch.Tensor):
+        return pixel_values, True
+
+    try:
+        import jax
+    except ImportError:
+        jax = None  # type: ignore[assignment]
+
+    if jax is not None and isinstance(pixel_values, jax.Array):
+        return np.asarray(pixel_values, dtype=np.float32), False
+
+    return np.asarray(pixel_values, dtype=np.float32), False
 
 
 def infer_default_batch_size(

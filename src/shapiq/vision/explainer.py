@@ -87,12 +87,12 @@ class ImageExplainer(Explainer):
         )
 
     def explain_function(
-        self, x: np.ndarray | None = None, *, budget: int = 64
+        self, _x: np.ndarray | None = None, *, budget: int = 64
     ) -> InteractionValues:
         """Compute interaction values for the image.
 
         Args:
-            x: Unused; the image was provided at construction time.
+            _x: Unused; the image was provided at construction time.
             budget: Number of model evaluations (coalitions) to use.
 
         Returns:

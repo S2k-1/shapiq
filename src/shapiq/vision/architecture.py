@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from shapiq.explainer.utils import print_class
+
 from .masking import (
     BoolMaskedPosStrategy,
     LatentMaskingStrategy,
@@ -22,7 +24,7 @@ from .players import (
     PlayerStrategy,
     SuperpixelStrategy,
 )
-from .utils import get_torch_device, tensor_to_numpy
+from .utils import get_torch_device, normalize_pixel_values, softmax_numpy, tensor_to_numpy
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -472,10 +474,14 @@ class CustomViTArchitecture(ModelArchitectureStrategy):
     ``model.config`` are not available. The caller pre-processes the image and
     supplies ``pixel_values`` and the explicit token grid directly.
 
+    Accepts numpy arrays for framework-agnostic callables (including JAX/Flax
+    models wrapped as ``numpy in → numpy out`` callables) or PyTorch tensors for
+    torch-native models.
+
     Args:
         model: A ViT-like model that accepts ``pixel_values`` and (optionally)
             ``bool_masked_pos``, and returns logits or an object with ``.logits``.
-        pixel_values: Pre-processed ``(1, C, H, W)`` tensor for the image being explained.
+        pixel_values: Pre-processed ``(1, C, H, W)`` array or tensor for the image being explained.
         class_id: The class index to score.
         n_tokens: Number of patch tokens (e.g. 196 for a 14x14 grid).
         masking_strategy: Latent-space masking strategy. Defaults to ``BoolMaskedPosStrategy``.
@@ -485,7 +491,7 @@ class CustomViTArchitecture(ModelArchitectureStrategy):
     def __init__(
         self,
         model: Model,
-        pixel_values: torch.Tensor,
+        pixel_values: np.ndarray | torch.Tensor,
         class_id: int,
         n_tokens: int,
         masking_strategy: LatentMaskingStrategy | None = None,
@@ -494,14 +500,14 @@ class CustomViTArchitecture(ModelArchitectureStrategy):
 
         Args:
             model: A ViT-like model callable.
-            pixel_values: Pre-processed ``(1, C, H, W)`` tensor.
+            pixel_values: Pre-processed ``(1, C, H, W)`` array or tensor.
             class_id: The class index to score.
             n_tokens: Number of patch tokens.
             masking_strategy: Latent-space masking strategy. Defaults to
                 ``BoolMaskedPosStrategy``.
         """
         self.model = model
-        self._pixel_values = pixel_values
+        self._pixel_values, self._uses_torch = normalize_pixel_values(pixel_values)
         self.class_id = class_id
         self.n_tokens = n_tokens
         self._masking_strategy = masking_strategy or self.default_masking_strategy()
@@ -522,28 +528,38 @@ class CustomViTArchitecture(ModelArchitectureStrategy):
         """Return the default bool-masked-pos masking strategy."""
         return BoolMaskedPosStrategy()
 
-    def prepare(self, image: np.ndarray, player_strategy: LatentPlayerStrategy) -> None:
+    def prepare(self, _image: np.ndarray, player_strategy: LatentPlayerStrategy) -> None:
         """Cache the player strategy reference and align pixel values with the model device."""
-        device = get_torch_device(self.model)
-        self._pixel_values = self._pixel_values.to(device)
+        if self._uses_torch:
+            device = get_torch_device(self.model)
+            self._pixel_values = self._pixel_values.to(device)
         self._player_strategy_ref = player_strategy
 
     def value_function(self, _image: np.ndarray, coalitions: np.ndarray) -> np.ndarray:
         """Apply latent masking and return class probabilities for each coalition."""
-        import torch
-
         if coalitions.ndim == 1:
             coalitions = coalitions.reshape(1, -1)
-        device = self._pixel_values.device
-        bool_masks = torch.stack(
-            [self._player_strategy_ref.get_latent_mask(c) for c in coalitions]
-        ).to(device)
-        with torch.no_grad():
-            logits = self._masking_strategy.predict_logits(
-                self.model, self._pixel_values, bool_masks
-            )
-            probs = torch.softmax(logits, dim=-1)
-        return tensor_to_numpy(probs[:, self.class_id])
+
+        if self._uses_torch:
+            import torch
+
+            device = self._pixel_values.device
+            bool_masks = torch.stack(
+                [self._player_strategy_ref.get_latent_mask(c) for c in coalitions]
+            ).to(device)
+            with torch.no_grad():
+                logits = self._masking_strategy.predict_logits(
+                    self.model, self._pixel_values, bool_masks
+                )
+                probs = torch.softmax(logits, dim=-1)
+            return tensor_to_numpy(probs[:, self.class_id])
+
+        bool_masks = np.stack(
+            [self._player_strategy_ref.get_latent_mask_array(c) for c in coalitions]
+        )
+        logits = self._masking_strategy.predict_logits(self.model, self._pixel_values, bool_masks)
+        probs = softmax_numpy(np.asarray(logits))
+        return probs[:, self.class_id]
 
     def calc_empty_prediction(self, image: np.ndarray) -> float:
         """Return the model prediction for the empty coalition."""
@@ -577,8 +593,6 @@ def get_architecture_for_model(
     Raises:
         TypeError: If a HuggingFace model needs extra arguments that were not provided.
     """
-    from shapiq.explainer.utils import print_class
-
     if architecture is not None:
         return architecture
     if isinstance(model, ModelArchitectureStrategy):

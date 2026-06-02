@@ -9,8 +9,10 @@ from shapiq import Explainer
 from shapiq.explainer.utils import get_explainers
 from shapiq.interaction_values import InteractionValues
 from shapiq.vision import ImageExplainer
-from shapiq.vision.architecture import ResNetArchitecture
+from shapiq.vision.architecture import CustomViTArchitecture, ResNetArchitecture
 from shapiq.vision.masking import ZeroMasking
+from shapiq.vision.players import PatchStrategy
+from tests.shapiq.markers import skip_if_no_jax
 
 from .conftest import FixedMasksStrategy, make_linear_pixel_model
 
@@ -101,3 +103,39 @@ class TestExplainerAutoDispatch:
         )
         assert isinstance(explainer, ImageExplainer)
         assert explainer.imputer.architecture is arch
+
+
+@skip_if_no_jax
+class TestJaxViTExplainerEndToEnd:
+    """End-to-end ImageExplainer on a tiny ViT-like JAX callable (Task 4 integration)."""
+
+    @staticmethod
+    def _jax_vit_model(pixel_values: np.ndarray, bool_masked_pos: np.ndarray) -> np.ndarray:
+        import jax.numpy as jnp
+
+        visible = (~jnp.asarray(bool_masked_pos)).sum(axis=1).astype(jnp.float32)
+        return np.asarray(jnp.stack([visible, -visible], axis=1))
+
+    def test_image_explainer_with_jax_vit_callable(self) -> None:
+        side = 2
+        n_tokens = 4
+        image = np.zeros((side, side, 3), dtype=np.float64)
+        architecture = CustomViTArchitecture(
+            model=self._jax_vit_model,
+            pixel_values=np.zeros((1, 3, side, side), dtype=np.float32),
+            class_id=0,
+            n_tokens=n_tokens,
+        )
+        explainer = ImageExplainer(
+            architecture=architecture,
+            data=image,
+            player_strategy=PatchStrategy(grid_size=side, n_players=n_tokens),
+            index="k-SII",
+            max_order=2,
+            batch_size=4,
+            random_state=0,
+        )
+        result = explainer.explain_function(image, budget=32)
+        assert isinstance(result, InteractionValues)
+        assert result.n_players == n_tokens
+        assert np.isfinite(result.values).all()

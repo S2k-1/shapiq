@@ -200,6 +200,9 @@ exclude = [
     "BLE001",  # scripts can have bare excepts
     "TRY"
 ]
+"src/shapiq/vision/**" = [
+    "PLC0415",  # lazy optional-dependency imports; torch must not be at module level
+]
 "src/shapiq/vision/prototypes/**" = [
     "ALL",  # prototype notebooks are development scratch, not production code
 ]
@@ -215,11 +218,29 @@ exclude = [
     "ARG",     # unused arguments acceptable in tutorials
     "INP",     # tutorials may not have __init__.py
     "S101",    # asserts acceptable in tutorials
+    "I001",    # notebook cells have non-standard import ordering
+    "N812",    # torchvision-style aliases (T, F) in notebooks
+    "SLF001",  # tutorials may inspect private attrs for pedagogy
+    "FBT003",  # boolean positional args acceptable in notebooks
+    "F404",    # __future__ may appear mid-notebook after setup cells
+    "RUF046",  # int() casts acceptable in tutorial math
+    "C408",    # dict() kwargs acceptable in matplotlib bbox
+    "B023",    # lambdas in benchmark loops are intentional
+    "E402",    # imports after setup/warm-up cells
+    "PD011",   # .values on SHAP objects, not pandas
+    "RUF059",  # unused fig unpack acceptable in plots
+    "SIM401",  # explicit dict lookups acceptable in tutorials
 ]
 "src/shapiq/vision/vision_package_test.ipynb" = [
     "ERA001",  # test notebook can have commented-out code
     "S113",    # requests without timeout acceptable in test notebook
     "T201",    # print statements acceptable in test notebook
+    "SLF001",  # smoke-test notebook may read private explainer attrs
+]
+"tests/shapiq/tests_unit/tests_vision/**" = [
+    "PLC0415",  # jax/torch imported inside tests that skip when absent
+    "RUF002",   # multiplication sign in docstrings is intentional
+    "RET504",   # named return values aid readability in flax modules
 ]
 
 [tool.ruff.lint.pydocstyle]

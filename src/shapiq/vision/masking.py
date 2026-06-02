@@ -234,20 +234,27 @@ class LatentMaskingStrategy(ABC):
     def predict_logits(
         self,
         model: Model,
-        pixel_values: torch.Tensor,
-        bool_masks: torch.Tensor,
-    ) -> torch.Tensor:
+        pixel_values: torch.Tensor | np.ndarray,
+        bool_masks: torch.Tensor | np.ndarray,
+    ) -> torch.Tensor | np.ndarray:
         """Run the model with masked tokens and return logits.
 
         Args:
             model: The vision model.
-            pixel_values: ``(1, C, H, W)`` pre-processed image tensor.
+            pixel_values: ``(1, C, H, W)`` pre-processed image tensor or array.
             bool_masks: ``(B, n_tokens)`` boolean mask; ``True`` = token masked (absent).
 
         Returns:
-            Logit tensor of shape ``(B, n_classes)``.
+            Logit array of shape ``(B, n_classes)``.
         """
         ...
+
+
+def _extract_model_logits(output: object) -> torch.Tensor | np.ndarray:
+    """Return logits from a model output or a bare logits array."""
+    if hasattr(output, "logits"):
+        return output.logits
+    return output
 
 
 class BoolMaskedPosStrategy(LatentMaskingStrategy):
@@ -256,24 +263,32 @@ class BoolMaskedPosStrategy(LatentMaskingStrategy):
     def predict_logits(
         self,
         model: Model,
-        pixel_values: torch.Tensor,
-        bool_masks: torch.Tensor,
-    ) -> torch.Tensor:
+        pixel_values: torch.Tensor | np.ndarray,
+        bool_masks: torch.Tensor | np.ndarray,
+    ) -> torch.Tensor | np.ndarray:
         """Run the model with ``bool_masked_pos`` masking and return logits."""
         import torch
 
-        # ViTForImageClassification has mask_token=None by default, initialise it so the
-        # embedding layer can replace masked patch tokens during the forward pass.
-        # Custom ViT models may not expose the HuggingFace ``vit.embeddings`` layout.
-        vit = getattr(model, "vit", None)
-        if vit is not None:
-            embeddings = vit.embeddings
-            if embeddings.mask_token is None:
-                embeddings.mask_token = torch.nn.Parameter(
-                    torch.zeros(1, 1, model.config.hidden_size)
-                )
-        batch = pixel_values.repeat(bool_masks.shape[0], 1, 1, 1)
-        return model(pixel_values=batch, bool_masked_pos=bool_masks).logits
+        if isinstance(pixel_values, torch.Tensor):
+            # ViTForImageClassification has mask_token=None by default, initialise it so the
+            # embedding layer can replace masked patch tokens during the forward pass.
+            # Custom ViT models may not expose the HuggingFace ``vit.embeddings`` layout.
+            vit = getattr(model, "vit", None)
+            if vit is not None:
+                embeddings = vit.embeddings
+                if embeddings.mask_token is None:
+                    embeddings.mask_token = torch.nn.Parameter(
+                        torch.zeros(1, 1, model.config.hidden_size)
+                    )
+            batch = pixel_values.repeat(bool_masks.shape[0], 1, 1, 1)
+            return model(pixel_values=batch, bool_masked_pos=bool_masks).logits
+
+        pixel_values = np.asarray(pixel_values)
+        bool_masks = np.asarray(bool_masks, dtype=bool)
+        batch = np.repeat(pixel_values, bool_masks.shape[0], axis=0)
+        return np.asarray(
+            _extract_model_logits(model(pixel_values=batch, bool_masked_pos=bool_masks))
+        )
 
 
 class MaskTokenStrategy(LatentMaskingStrategy):
