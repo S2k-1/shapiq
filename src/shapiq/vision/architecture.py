@@ -11,6 +11,8 @@ import numpy as np
 from .masking import (
     BoolMaskedPosStrategy,
     LatentMaskingStrategy,
+    LayerMasking,
+    ManifoldMaskingStrategy,
     MaskTokenStrategy,
     MeanColorMasking,
     PixelMaskingStrategy,
@@ -24,7 +26,7 @@ from .players import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Callable, Sequence
 
     import torch
 
@@ -197,6 +199,92 @@ class ViTArchitecture(ModelArchitectureStrategy):
     def calc_empty_prediction(self, image: np.ndarray) -> float:
         """Return the model prediction for the empty coalition."""
         n = self._player_strategy_ref.n_players
+        return float(self.value_function(image, np.zeros((1, n), dtype=bool))[0])
+
+
+class LayerMaskedCNNArchitecture(ModelArchitectureStrategy):
+    """CNN architecture that masks intermediate activations instead of input pixels.
+
+    Pairs a raw ``torch.nn.Module`` (e.g. ``torchvision.models.resnet18``) with
+    a :class:`~shapiq.vision.masking.ManifoldMaskingStrategy` such as
+    :class:`~shapiq.vision.masking.LayerMasking`. A forward hook installed by
+    the strategy attenuates activations at the chosen layer, so the model never
+    receives a pixel-space replacement and the missingness bias of mean / zero
+    / blur masking is avoided. The CNN analogue of using
+    :class:`~shapiq.vision.architecture.ViTArchitecture` with
+    :class:`~shapiq.vision.masking.MaskTokenStrategy`.
+
+    Args:
+        model: A raw ``torch.nn.Module`` (not a pre-wrapped callable). Layer
+            hooks need direct access to submodules.
+        preprocess: Callable mapping a ``(H, W, C)`` image array to a
+            ``(C, H, W)`` tensor (e.g. ``ResNet18_Weights.DEFAULT.transforms()``).
+        class_id: Class index whose probability is returned as the value.
+        masking_strategy: Manifold masking strategy. Defaults to
+            :class:`~shapiq.vision.masking.LayerMasking` hooking ``"layer2"``.
+
+    Example::
+
+        from torchvision.models import resnet18, ResNet18_Weights
+
+        weights = ResNet18_Weights.DEFAULT
+        model = resnet18(weights=weights).eval()
+        arch = LayerMaskedCNNArchitecture(
+            model=model,
+            preprocess=weights.transforms(),
+            class_id=281,  # tabby cat
+        )
+        explainer = ImageExplainer(architecture=arch, data=image)
+    """
+
+    def __init__(
+        self,
+        model: torch.nn.Module,
+        preprocess: Callable[[np.ndarray], torch.Tensor],
+        class_id: int,
+        masking_strategy: ManifoldMaskingStrategy | None = None,
+    ) -> None:
+        """Initialize the LayerMaskedCNNArchitecture.
+
+        Args:
+            model: A raw ``torch.nn.Module``.
+            preprocess: Callable ``f((H, W, C) ndarray) -> (C, H, W) tensor``.
+            class_id: Class index whose probability is returned.
+            masking_strategy: A :class:`ManifoldMaskingStrategy`. Defaults to
+                :class:`LayerMasking` hooking ``"layer2"``.
+        """
+        self.model = model
+        self.preprocess = preprocess
+        self.class_id = class_id
+        self._masking_strategy = masking_strategy or self.default_masking_strategy()
+        self._player_masks: np.ndarray | None = None
+
+    def default_player_strategy(self) -> SuperpixelStrategy:
+        """Return the default superpixel player strategy."""
+        return SuperpixelStrategy(n_segments=10)
+
+    def default_masking_strategy(self) -> LayerMasking:
+        """Return the default layer-masking strategy (hooks ``layer2``)."""
+        return LayerMasking(layer_name="layer2")
+
+    def prepare(self, image: np.ndarray, player_strategy: PixelPlayerStrategy) -> None:
+        """Precompute player masks for the given image."""
+        self._player_masks = player_strategy.get_masks(image)
+
+    def value_function(self, image: np.ndarray, coalitions: np.ndarray) -> np.ndarray:
+        """Delegate to the manifold masking strategy."""
+        return self._masking_strategy.value_function(
+            self.model,
+            self.preprocess,
+            image,
+            self._player_masks,
+            coalitions,
+            self.class_id,
+        )
+
+    def calc_empty_prediction(self, image: np.ndarray) -> float:
+        """Return the model prediction for the empty coalition."""
+        n = self._player_masks.shape[0]
         return float(self.value_function(image, np.zeros((1, n), dtype=bool))[0])
 
 

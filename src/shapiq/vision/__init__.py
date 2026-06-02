@@ -6,6 +6,7 @@ from .architecture import (
     CustomViTArchitecture,
     DINOv2Architecture,
     HuggingFacePixelArchitecture,
+    LayerMaskedCNNArchitecture,
     ModelArchitectureStrategy,
     ResNetArchitecture,
     ViTArchitecture,
@@ -14,7 +15,11 @@ from .imputer import ImageImputer
 from .masking import (
     BlurMasking,
     BoolMaskedPosStrategy,
+    InpaintingMasking,
     LatentMaskingStrategy,
+    LayerMasking,
+    ManifoldMaskingStrategy,
+    MarginalSampling,
     MaskTokenStrategy,
     MeanColorMasking,
     PixelMaskingStrategy,
@@ -40,6 +45,7 @@ __all__ = [
     "DINOv2Architecture",
     "CLIPArchitecture",
     "CustomViTArchitecture",
+    "LayerMaskedCNNArchitecture",
     # Explainer
     "ImageExplainer",
     # Imputer
@@ -47,11 +53,15 @@ __all__ = [
     # Masking
     "PixelMaskingStrategy",
     "LatentMaskingStrategy",
+    "ManifoldMaskingStrategy",
     "MeanColorMasking",
     "ZeroMasking",
     "BlurMasking",
+    "MarginalSampling",
+    "InpaintingMasking",
     "BoolMaskedPosStrategy",
     "MaskTokenStrategy",
+    "LayerMasking",
     # Players
     "PlayerStrategy",
     "PixelPlayerStrategy",
