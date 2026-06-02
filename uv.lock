@@ -237,6 +237,35 @@ css = [
 ]
 
 [[package]]
+name = "catboost"
+version = "1.2.10"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "graphviz" },
+    { name = "matplotlib" },
+    { name = "numpy" },
+    { name = "pandas" },
+    { name = "plotly" },
+    { name = "scipy" },
+    { name = "six" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/e9/0e/09e8fa0858570fda88090bc3f441b69c18ea3d6f4a02fd41aa5426c157bf/catboost-1.2.10.tar.gz", hash = "sha256:26ae6d423acaf0e9d8160f2477a990431057ed04522d993c2f42dac62743b4f7", size = 39925863, upload-time = "2026-02-18T16:13:29.092Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/bb/52/f5cd568800c87576012d715481730da93bcc34e609c5c204550a9ad0c067/catboost-1.2.10-cp312-cp312-macosx_11_0_universal2.whl", hash = "sha256:b27115d5b443048f710001c8ac666892dfe03498492310b00466203c91cc30a5", size = 28884278, upload-time = "2026-02-18T16:12:07.659Z" },
+    { url = "https://files.pythonhosted.org/packages/33/ae/d33a8feba68fa810b30d70c660e4a2c62299472c2e1aa34406ccce306d13/catboost-1.2.10-cp312-cp312-manylinux2014_aarch64.whl", hash = "sha256:39234b3692b6c9002b4a2ac529025fc210dd72feb9b621b27d17c65b7d3e9f92", size = 96704178, upload-time = "2026-02-18T16:12:11.229Z" },
+    { url = "https://files.pythonhosted.org/packages/15/6c/08eabe522ac5cefc605ef81f273d77602130739ec7bcdc0ef192aa0a1f07/catboost-1.2.10-cp312-cp312-manylinux2014_x86_64.whl", hash = "sha256:b28f763776e62f50da90dddf73b36399583295032667a7e46fc5c1f2593eb80f", size = 97136498, upload-time = "2026-02-18T16:12:15.339Z" },
+    { url = "https://files.pythonhosted.org/packages/93/e2/f467a133b37eef2b3d8697d46a6e7f0da24bd3643f5475817c473ffc41dc/catboost-1.2.10-cp312-cp312-win_amd64.whl", hash = "sha256:6b8a7ef11d7a89fc547760cfafeee895011a4b92cc1f60d00235ef80a71158ed", size = 100214655, upload-time = "2026-02-18T16:12:20.046Z" },
+    { url = "https://files.pythonhosted.org/packages/2d/02/3c5f08a7c7969eaa2509d804461db26752fe1c7ecb8ad8510cab51a95fd2/catboost-1.2.10-cp313-cp313-macosx_11_0_universal2.whl", hash = "sha256:bd3d3b344894f61b5f70124658f302148bb9a51c41d0d5b6c453a72e9dfefc49", size = 28829400, upload-time = "2026-02-18T16:12:23.682Z" },
+    { url = "https://files.pythonhosted.org/packages/98/fd/63be2ff7aa9f6a7d63e342f42948259a028bfa50203d5ff687c84804ffb7/catboost-1.2.10-cp313-cp313-manylinux2014_aarch64.whl", hash = "sha256:59aa166f075f0a5ea57b0ba46e5060bd6a22e849e91e4142f16c2df11295b184", size = 96680675, upload-time = "2026-02-18T16:12:28.407Z" },
+    { url = "https://files.pythonhosted.org/packages/fe/2c/fa0479bd79226f037b495a30696b70741beb198f65227c975005e213aa8e/catboost-1.2.10-cp313-cp313-manylinux2014_x86_64.whl", hash = "sha256:42c1b6c7ae5c18cdbe00c8b9493987cc13338fe328baaf1a0b98ddaf58db96a2", size = 97111368, upload-time = "2026-02-18T16:12:32.456Z" },
+    { url = "https://files.pythonhosted.org/packages/69/71/a9e9a06418832fbea9d7cefda585d53395358d498537b6bdd3cf7364cd29/catboost-1.2.10-cp313-cp313-win_amd64.whl", hash = "sha256:5ede858e634d6d0f521bf6dd6fad9374f23d37049ee48e0779ccd2a372632cb1", size = 100201430, upload-time = "2026-02-18T16:12:36.731Z" },
+    { url = "https://files.pythonhosted.org/packages/56/58/f370f6c64db5e7da92e3b88ab62e2df72f113cf5a1eee35b48f69d54accd/catboost-1.2.10-cp314-cp314-macosx_11_0_universal2.whl", hash = "sha256:3efc5e4d414b7c13bff6dd0d6c938cf09bb1445097283c7790e54b8ee461820b", size = 28840256, upload-time = "2026-02-18T16:12:40.153Z" },
+    { url = "https://files.pythonhosted.org/packages/9d/74/18597f0b2923e3660cd44f942fe9e7cddaa99afc252bc745c48f79566330/catboost-1.2.10-cp314-cp314-manylinux2014_aarch64.whl", hash = "sha256:bad9a70890cdc591080a908d54a3cd70002ab1e48b2017adff84726da0b3e16d", size = 96688527, upload-time = "2026-02-18T16:12:43.534Z" },
+    { url = "https://files.pythonhosted.org/packages/6b/ac/7effae0e47fd9586e46a796f5af61b730c572570cedee333ee9ba8db85a8/catboost-1.2.10-cp314-cp314-manylinux2014_x86_64.whl", hash = "sha256:7b8cc4ea3a6ac4a8d05f3a79c8ee5454360a0a710fa12444963865ad3f0ddfec", size = 97119495, upload-time = "2026-02-18T16:12:47.557Z" },
+    { url = "https://files.pythonhosted.org/packages/da/b7/8f9e284a9cdd034f01f017dc5dab0da03dc3eac171a2be205745da3becb6/catboost-1.2.10-cp314-cp314-win_amd64.whl", hash = "sha256:951c5bdf27b8edb6ca624f41134888c666ae68275488803d3c91ce83e154f0c5", size = 101749687, upload-time = "2026-02-18T16:12:51.736Z" },
+]
+
+[[package]]
 name = "certifi"
 version = "2026.2.25"
 source = { registry = "https://pypi.org/simple" }
@@ -865,6 +894,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/35/4a/0bd53b36ff0323d10d5f24ebd67af2de10a1117f5cf4d7add90df92756f1/google-pasta-0.2.0.tar.gz", hash = "sha256:c9f2c8dfc8f96d0d5808299920721be30c9eec37f2389f28904f454565c8a16e", size = 40430, upload-time = "2020-03-13T18:57:50.34Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a3/de/c648ef6835192e6e2cc03f40b19eeda4382c49b5bafb43d88b931c4c74ac/google_pasta-0.2.0-py3-none-any.whl", hash = "sha256:b32482794a366b5366a32c92a9a9201b107821889935a02b3e51f6b432ea84ed", size = 57471, upload-time = "2020-03-13T18:57:48.872Z" },
+]
+
+[[package]]
+name = "graphviz"
+version = "0.21"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/f8/b3/3ac91e9be6b761a4b30d66ff165e54439dcd48b83f4e20d644867215f6ca/graphviz-0.21.tar.gz", hash = "sha256:20743e7183be82aaaa8ad6c93f8893c923bd6658a04c32ee115edb3c8a835f78", size = 200434, upload-time = "2025-06-15T09:35:05.824Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/91/4c/e0ce1ef95d4000ebc1c11801f9b944fa5910ecc15b5e351865763d8657f8/graphviz-0.21-py3-none-any.whl", hash = "sha256:54f33de9f4f911d7e84e4191749cac8cc5653f815b06738c54db9a15ab8b1e42", size = 47300, upload-time = "2025-06-15T09:35:04.433Z" },
 ]
 
 [[package]]
@@ -1926,6 +1964,15 @@ wheels = [
 ]
 
 [[package]]
+name = "narwhals"
+version = "2.22.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/9c/1c/c80cb7719721a44846c6301ef118434bae30a423924bfad3a47f16bdc064/narwhals-2.22.0.tar.gz", hash = "sha256:6486282bb7e4b4ab55963efbd8be1451b764cc4874b74d1fd625eba9dc60b86f", size = 417565, upload-time = "2026-06-01T13:34:36.249Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/1f/b6/e7cdde7b8e90d5dff25b622f95833ef26567ad184c977278b93a1cbd5717/narwhals-2.22.0-py3-none-any.whl", hash = "sha256:1421797ede01789cc1537619dbc3f36f840737240f748fdb24a60a0225fc80be", size = 453815, upload-time = "2026-06-01T13:34:34.127Z" },
+]
+
+[[package]]
 name = "nbclient"
 version = "0.10.4"
 source = { registry = "https://pypi.org/simple" }
@@ -2539,6 +2586,19 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/19/56/8d4c30c8a1d07013911a8fdbd8f89440ef9f08d07a1b50ab8ca8be5a20f9/platformdirs-4.9.4.tar.gz", hash = "sha256:1ec356301b7dc906d83f371c8f487070e99d3ccf9e501686456394622a01a934", size = 28737, upload-time = "2026-03-05T18:34:13.271Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/63/d7/97f7e3a6abb67d8080dd406fd4df842c2be0efaf712d1c899c32a075027c/platformdirs-4.9.4-py3-none-any.whl", hash = "sha256:68a9a4619a666ea6439f2ff250c12a853cd1cbd5158d258bd824a7df6be2f868", size = 21216, upload-time = "2026-03-05T18:34:12.172Z" },
+]
+
+[[package]]
+name = "plotly"
+version = "6.7.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "narwhals" },
+    { name = "packaging" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/3a/7f/0f100df1172aadf88a929a9dbb902656b0880ba4b960fe5224867159d8f4/plotly-6.7.0.tar.gz", hash = "sha256:45eea0ff27e2a23ccd62776f77eb43aa1ca03df4192b76036e380bb479b892c6", size = 6911286, upload-time = "2026-04-09T20:36:45.738Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/90/ad/cba91b3bcf04073e4d1655a5c1710ef3f457f56f7d1b79dcc3d72f4dd912/plotly-6.7.0-py3-none-any.whl", hash = "sha256:ac8aca1c25c663a59b5b9140a549264a5badde2e057d79b8c772ae2920e32ff0", size = 9898444, upload-time = "2026-04-09T20:36:39.812Z" },
 ]
 
 [[package]]
@@ -3497,7 +3557,6 @@ name = "shapiq"
 source = { editable = "." }
 dependencies = [
     { name = "colour" },
-    { name = "galois" },
     { name = "joblib" },
     { name = "matplotlib" },
     { name = "networkx" },
@@ -3507,12 +3566,22 @@ dependencies = [
     { name = "requests" },
     { name = "scikit-learn" },
     { name = "scipy" },
-    { name = "sparse-transform" },
     { name = "tqdm" },
+]
+
+[package.optional-dependencies]
+proxy = [
+    { name = "lightgbm" },
+    { name = "xgboost" },
+]
+sparse = [
+    { name = "galois" },
+    { name = "sparse-transform" },
 ]
 
 [package.dev-dependencies]
 all-ml = [
+    { name = "catboost" },
     { name = "lightgbm" },
     { name = "scikit-image" },
     { name = "tabpfn" },
@@ -3524,6 +3593,7 @@ all-ml = [
     { name = "xgboost" },
 ]
 dev = [
+    { name = "catboost" },
     { name = "ipywidgets" },
     { name = "lightgbm" },
     { name = "notebook" },
@@ -3544,6 +3614,7 @@ dev = [
     { name = "xgboost" },
 ]
 docs = [
+    { name = "catboost" },
     { name = "furo" },
     { name = "ipython" },
     { name = "lightgbm" },
@@ -3582,8 +3653,9 @@ test = [
 [package.metadata]
 requires-dist = [
     { name = "colour" },
-    { name = "galois" },
+    { name = "galois", marker = "extra == 'sparse'" },
     { name = "joblib" },
+    { name = "lightgbm", marker = "extra == 'proxy'" },
     { name = "matplotlib" },
     { name = "networkx" },
     { name = "numpy" },
@@ -3592,12 +3664,15 @@ requires-dist = [
     { name = "requests" },
     { name = "scikit-learn" },
     { name = "scipy" },
-    { name = "sparse-transform" },
+    { name = "sparse-transform", marker = "extra == 'sparse'" },
     { name = "tqdm" },
+    { name = "xgboost", marker = "extra == 'proxy'" },
 ]
+provides-extras = ["sparse", "proxy"]
 
 [package.metadata.requires-dev]
 all-ml = [
+    { name = "catboost" },
     { name = "lightgbm" },
     { name = "scikit-image" },
     { name = "tabpfn", specifier = ">=2.1.3" },
@@ -3609,6 +3684,7 @@ all-ml = [
     { name = "xgboost" },
 ]
 dev = [
+    { name = "catboost" },
     { name = "ipywidgets" },
     { name = "lightgbm" },
     { name = "notebook", specifier = ">=7.3.3" },
@@ -3629,6 +3705,7 @@ dev = [
     { name = "xgboost" },
 ]
 docs = [
+    { name = "catboost" },
     { name = "furo" },
     { name = "ipython", specifier = ">=9.0.0" },
     { name = "lightgbm" },
