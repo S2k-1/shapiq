@@ -9,6 +9,7 @@ from shapiq.vision.architecture import (
     ModelArchitectureStrategy,
     ResNetArchitecture,
     ViTArchitecture,
+    _build_patch_pixel_masks,
 )
 from shapiq.vision.masking import MeanColorMasking, ZeroMasking
 from shapiq.vision.players import PatchStrategy, SuperpixelStrategy
@@ -108,3 +109,10 @@ class TestViTArchitectureDefaults:
         assert strategy.grid_size == 3  # 24 // 8
         # n_players defaults to 9.
         assert strategy.n_players == 9
+
+    def test_build_patch_pixel_masks_for_visualization(self) -> None:
+        image = np.zeros((224, 224, 3))
+        strategy = PatchStrategy(grid_size=14, n_players=9)
+        masks = _build_patch_pixel_masks(image, strategy)
+        assert masks.shape == (9, 224, 224)
+        assert (masks.sum(axis=0) >= 1).all()

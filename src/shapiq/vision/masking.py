@@ -3,14 +3,31 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     import torch
 
     from shapiq.typing import Model
+
+
+def coalition_absence_mask(player_masks: np.ndarray, coalition: np.ndarray) -> np.ndarray:
+    """Build a per-coalition absence mask of shape ``(n_coalitions, H, W)``.
+
+    A pixel is marked absent when at least one *absent* player covers it.
+    """
+    n_coalitions = coalition.shape[0]
+    _, height, width = player_masks.shape
+    absence = np.zeros((n_coalitions, height, width), dtype=bool)
+    for coalition_idx, coal in enumerate(coalition):
+        for player_idx, is_present in enumerate(coal):
+            if not is_present:
+                absence[coalition_idx] |= player_masks[player_idx]
+    return absence
 
 
 class PixelMaskingStrategy(ABC):
@@ -41,17 +58,9 @@ class MeanColorMasking(PixelMaskingStrategy):
     ) -> np.ndarray:
         """Apply mean-color masking to a batch of coalitions."""
         n_coalitions = coalition.shape[0]
-        H, W, _ = image.shape
 
         masked_images = np.stack([image] * n_coalitions, axis=0)
-
-        mask = np.zeros((n_coalitions, H, W), dtype=bool)
-        for i, coal in enumerate(coalition):
-            for j, is_present in enumerate(coal):
-                if not is_present:
-                    mask[i] |= player_masks[j]
-
-        masked_images[mask] = image.mean(axis=(0, 1))
+        masked_images[coalition_absence_mask(player_masks, coalition)] = image.mean(axis=(0, 1))
         return masked_images
 
 
@@ -71,17 +80,9 @@ class ZeroMasking(PixelMaskingStrategy):
     ) -> np.ndarray:
         """Apply constant-value masking to a batch of coalitions."""
         n_coalitions = coalition.shape[0]
-        H, W, _ = image.shape
 
         masked_images = np.stack([image] * n_coalitions, axis=0)
-
-        mask = np.zeros((n_coalitions, H, W), dtype=bool)
-        for i, coal in enumerate(coalition):
-            for j, is_present in enumerate(coal):
-                if not is_present:
-                    mask[i] |= player_masks[j]
-
-        masked_images[mask] = self.value
+        masked_images[coalition_absence_mask(player_masks, coalition)] = self.value
         return masked_images
 
 
@@ -120,16 +121,9 @@ class BlurMasking(PixelMaskingStrategy):
 
         blurred = gaussian_filter(image, sigma=[self.sigma, self.sigma, 0])
         n_coalitions = coalition.shape[0]
-        H, W, _ = image.shape
 
         masked_images = np.stack([image] * n_coalitions, axis=0)
-
-        absence_mask = np.zeros((n_coalitions, H, W), dtype=bool)
-        for i, coal in enumerate(coalition):
-            for j, is_present in enumerate(coal):
-                if not is_present:
-                    absence_mask[i] |= player_masks[j]
-
+        absence_mask = coalition_absence_mask(player_masks, coalition)
         return np.where(absence_mask[..., np.newaxis], blurred[np.newaxis], masked_images)
 
 
@@ -164,17 +158,10 @@ class DatasetMeanMasking(PixelMaskingStrategy):
     ) -> np.ndarray:
         """Apply dataset-mean masking to a batch of coalitions."""
         n_coalitions = coalition.shape[0]
-        H, W, C = image.shape
-        fill = np.broadcast_to(self.mean_color, (C,))
+        fill = np.broadcast_to(self.mean_color, (image.shape[2],))
 
         masked_images = np.stack([image] * n_coalitions, axis=0)
-        absence_mask = np.zeros((n_coalitions, H, W), dtype=bool)
-        for i, coal in enumerate(coalition):
-            for j, is_present in enumerate(coal):
-                if not is_present:
-                    absence_mask[i] |= player_masks[j]
-
-        masked_images[absence_mask] = fill
+        masked_images[coalition_absence_mask(player_masks, coalition)] = fill
         return masked_images
 
 
@@ -218,12 +205,7 @@ class GaussianNoiseMasking(PixelMaskingStrategy):
         noise = rng.normal(self.mean, self.std, size=(H, W, image.shape[2]))
 
         masked_images = np.stack([image] * n_coalitions, axis=0)
-        absence_mask = np.zeros((n_coalitions, H, W), dtype=bool)
-        for i, coal in enumerate(coalition):
-            for j, is_present in enumerate(coal):
-                if not is_present:
-                    absence_mask[i] |= player_masks[j]
-
+        absence_mask = coalition_absence_mask(player_masks, coalition)
         return np.where(absence_mask[..., np.newaxis], noise[np.newaxis], masked_images)
 
 
@@ -284,13 +266,8 @@ class MarginalSampling(PixelMaskingStrategy):
             raise ValueError(msg)
 
         n_coalitions = coalition.shape[0]
-        H, W, _ = image.shape
 
-        absence_mask = np.zeros((n_coalitions, H, W), dtype=bool)
-        for i, coal in enumerate(coalition):
-            for j, is_present in enumerate(coal):
-                if not is_present:
-                    absence_mask[i] |= player_masks[j]
+        absence_mask = coalition_absence_mask(player_masks, coalition)
 
         # Re-seed each call so reproducibility holds across multiple .apply() invocations
         # on the same strategy instance.
@@ -364,13 +341,8 @@ class InpaintingMasking(PixelMaskingStrategy):
         silently truncate floats to ``uint8``.
         """
         n_coalitions = coalition.shape[0]
-        H, W, _ = image.shape
 
-        absence_mask = np.zeros((n_coalitions, H, W), dtype=bool)
-        for i, coal in enumerate(coalition):
-            for j, is_present in enumerate(coal):
-                if not is_present:
-                    absence_mask[i] |= player_masks[j]
+        absence_mask = coalition_absence_mask(player_masks, coalition)
 
         return np.stack(
             [
@@ -379,8 +351,6 @@ class InpaintingMasking(PixelMaskingStrategy):
             ],
             axis=0,
         )
-
-
 
 
 class LatentMaskingStrategy(ABC):
@@ -563,15 +533,10 @@ class LayerMasking(ManifoldMaskingStrategy):
         if coalitions.ndim == 1:
             coalitions = coalitions.reshape(1, -1)
         b = coalitions.shape[0]
-        _, H, W = player_masks.shape
 
         # Build the per-coalition absence mask, then convert to a visibility mask
         # in [0, 1] that the hook multiplies into the activations.
-        absence_mask = np.zeros((b, H, W), dtype=bool)
-        for i, coal in enumerate(coalitions):
-            for j, is_present in enumerate(coal):
-                if not is_present:
-                    absence_mask[i] |= player_masks[j]
+        absence_mask = coalition_absence_mask(player_masks, coalitions)
         visible = torch.as_tensor(np.logical_not(absence_mask), dtype=torch.float32)
 
         # Preprocess the single image once, then broadcast to a batch of B copies.
@@ -582,7 +547,7 @@ class LayerMasking(ManifoldMaskingStrategy):
         batch_input = single.to(device).expand(b, -1, -1, -1).contiguous()
         visible = visible.to(device)
 
-        def hook(_module, _inputs, output):
+        def hook(_module: object, _inputs: object, output: torch.Tensor) -> torch.Tensor:
             spatial = output.shape[-2:]
             m = F.interpolate(visible.unsqueeze(1), size=spatial, mode="area")  # (B, 1, h, w)
             return output * m

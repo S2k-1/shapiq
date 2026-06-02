@@ -45,7 +45,7 @@ class ImageExplainer(Explainer):
     def __init__(
         self,
         architecture: ModelArchitectureStrategy,
-        data: ImageLike | None = None,
+        data: ImageLike,
         *,
         player_strategy: PlayerStrategy | None = None,
         masking_strategy: PixelMaskingStrategy | LatentMaskingStrategy | None = None,
@@ -68,6 +68,13 @@ class ImageExplainer(Explainer):
             batch_size: Maximum coalitions per forward pass. ``"auto"`` picks a sensible
                 default; ``None`` evaluates all coalitions at once.
         """
+        if data is None:
+            msg = (
+                "ImageExplainer requires `data` (the image to explain). "
+                "Pass a (H, W, C) numpy array, PIL image, or tensor."
+            )
+            raise ValueError(msg)
+
         super().__init__(model=architecture.model, index=index, max_order=max_order)
 
         self._imputer = ImageImputer(

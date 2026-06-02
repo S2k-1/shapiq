@@ -16,6 +16,78 @@ if TYPE_CHECKING:
     from .players import PlayerStrategy
 
 
+def _validate_strategies(
+    architecture: ModelArchitectureStrategy,
+    player_strategy: PlayerStrategy,
+    masking_strategy: PixelMaskingStrategy | LatentMaskingStrategy | None,
+) -> None:
+    """Ensure player and masking strategies match the architecture family."""
+    from .architecture import (
+        CLIPArchitecture,
+        CustomViTArchitecture,
+        DINOv2Architecture,
+        HuggingFacePixelArchitecture,
+        LayerMaskedCNNArchitecture,
+        ResNetArchitecture,
+        ViTArchitecture,
+    )
+    from .masking import LatentMaskingStrategy, ManifoldMaskingStrategy, PixelMaskingStrategy
+    from .players import LatentPlayerStrategy, PixelPlayerStrategy
+
+    pixel_architectures = (
+        ResNetArchitecture,
+        HuggingFacePixelArchitecture,
+        DINOv2Architecture,
+        CLIPArchitecture,
+        LayerMaskedCNNArchitecture,
+    )
+    latent_architectures = (ViTArchitecture, CustomViTArchitecture)
+    active_mask = (
+        masking_strategy if masking_strategy is not None else architecture.masking_strategy
+    )
+
+    if isinstance(architecture, pixel_architectures) and not isinstance(
+        player_strategy, PixelPlayerStrategy
+    ):
+        msg = (
+            f"{type(architecture).__name__} requires a PixelPlayerStrategy "
+            f"(got {type(player_strategy).__name__})."
+        )
+        raise TypeError(msg)
+    if isinstance(architecture, latent_architectures) and not isinstance(
+        player_strategy, LatentPlayerStrategy
+    ):
+        msg = (
+            f"{type(architecture).__name__} requires a LatentPlayerStrategy "
+            f"(got {type(player_strategy).__name__})."
+        )
+        raise TypeError(msg)
+
+    if isinstance(architecture, LayerMaskedCNNArchitecture):
+        if not isinstance(active_mask, ManifoldMaskingStrategy):
+            msg = (
+                f"LayerMaskedCNNArchitecture requires a ManifoldMaskingStrategy "
+                f"(got {type(active_mask).__name__})."
+            )
+            raise TypeError(msg)
+    elif isinstance(architecture, pixel_architectures) and not isinstance(
+        active_mask, PixelMaskingStrategy
+    ):
+        msg = (
+            f"{type(architecture).__name__} requires a PixelMaskingStrategy "
+            f"(got {type(active_mask).__name__})."
+        )
+        raise TypeError(msg)
+    elif isinstance(architecture, latent_architectures) and not isinstance(
+        active_mask, LatentMaskingStrategy
+    ):
+        msg = (
+            f"{type(architecture).__name__} requires a LatentMaskingStrategy "
+            f"(got {type(active_mask).__name__})."
+        )
+        raise TypeError(msg)
+
+
 class ImageImputer(Imputer):
     """Imputer for images.
 
@@ -44,18 +116,7 @@ class ImageImputer(Imputer):
         normalize: bool = True,
         batch_size: AutoBatchSize = "auto",
     ) -> None:
-        """Initialize the ImageImputer.
-
-        Args:
-            architecture: The model architecture strategy.
-            image: Image to explain as a ``(H, W, C)`` numpy array, PIL image, or tensor.
-            player_strategy: Player partitioning strategy. Defaults to the architecture's default.
-            masking_strategy: Masking strategy for absent players. Defaults to the architecture's
-                default.
-            normalize: Normalize predictions by subtracting the empty-coalition baseline.
-            batch_size: Maximum coalitions per forward pass. ``"auto"`` picks a sensible
-                default; ``None`` evaluates all coalitions at once.
-        """
+        """Initialize the ImageImputer."""
         self.image = as_hwc_array(image)
         self.architecture = architecture
 
@@ -63,13 +124,17 @@ class ImageImputer(Imputer):
         if masking_strategy is not None:
             architecture.masking_strategy = masking_strategy
 
+        _validate_strategies(architecture, player_strategy, masking_strategy)
+
+        # prepare() may update player counts (e.g. SLIC segment count).
+        architecture.prepare(self.image, player_strategy)
+        self._player_strategy = player_strategy
+
         self.batch_size = resolve_batch_size(
             batch_size, architecture, self.image, player_strategy.n_players
         )
 
-        architecture.prepare(self.image, player_strategy)
-        self._player_strategy = player_strategy
-
+        # Satisfy Imputer base ``n_features`` contract; coalitions are boolean masks.
         dummy_data = np.zeros((1, player_strategy.n_players))
         super().__init__(model=architecture.model, data=dummy_data)
 
@@ -104,17 +169,10 @@ class ImageImputer(Imputer):
         return np.concatenate(chunks, axis=0)
 
     def calc_empty_prediction(self) -> float:
-        """Run the model on the empty coalition to get the empty prediction.
-
-        Returns:
-            The model prediction when all features are missing.
-        """
+        """Run the model on the empty coalition to get the empty prediction."""
         return self.architecture.calc_empty_prediction(self.image)
 
     @property
     def player_masks(self) -> np.ndarray | None:
-        """Spatial masks per player, shape ``(n_players, H, W)``.
-
-        Returns ``None`` for latent-space architectures.
-        """
-        return getattr(self.architecture, "_player_masks", None)
+        """Spatial masks per player, shape ``(n_players, H, W)``."""
+        return self.architecture.player_masks

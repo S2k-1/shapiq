@@ -28,6 +28,8 @@ from .players import (
 )
 from .utils import get_torch_device, normalize_pixel_values, softmax_numpy, tensor_to_numpy
 
+MaskingStrategy = PixelMaskingStrategy | LatentMaskingStrategy | ManifoldMaskingStrategy
+
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
     from typing import Any
@@ -53,6 +55,22 @@ def _extract_hf_features(output: torch.Tensor | object) -> torch.Tensor:
     return output.last_hidden_state[:, 0]
 
 
+def _build_patch_pixel_masks(image: np.ndarray, player_strategy: PatchStrategy) -> np.ndarray:
+    """Map patch macro-regions to pixel-space masks for visualization."""
+    n = player_strategy.n_players
+    height, width = image.shape[:2]
+    side = player_strategy.side
+    masks = np.zeros((n, height, width), dtype=bool)
+    for player_idx in range(n):
+        row, col = divmod(player_idx, side)
+        y0 = row * height // side
+        y1 = height if row == side - 1 else (row + 1) * height // side
+        x0 = col * width // side
+        x1 = width if col == side - 1 else (col + 1) * width // side
+        masks[player_idx, y0:y1, x0:x1] = True
+    return masks
+
+
 class ModelArchitectureStrategy(ABC):
     """Encapsulates model-specific inference logic, decoupling it from ImageImputer."""
 
@@ -65,7 +83,7 @@ class ModelArchitectureStrategy(ABC):
         ...
 
     @abstractmethod
-    def default_masking_strategy(self) -> PixelMaskingStrategy | LatentMaskingStrategy:
+    def default_masking_strategy(self) -> MaskingStrategy:
         """Return the default masking strategy for this architecture."""
         ...
 
@@ -85,12 +103,12 @@ class ModelArchitectureStrategy(ABC):
         ...
 
     @property
-    def masking_strategy(self) -> PixelMaskingStrategy | LatentMaskingStrategy:
+    def masking_strategy(self) -> MaskingStrategy:
         """The active masking strategy. Settable to swap strategies after construction."""
         return self._masking_strategy
 
     @masking_strategy.setter
-    def masking_strategy(self, value: PixelMaskingStrategy | LatentMaskingStrategy) -> None:
+    def masking_strategy(self, value: MaskingStrategy) -> None:
         self._masking_strategy = value
 
     @property
@@ -136,10 +154,7 @@ class ResNetArchitecture(ModelArchitectureStrategy):
     def calc_empty_prediction(self, image: np.ndarray) -> float:
         """Return the model prediction for the empty coalition."""
         n = self._player_masks.shape[0]
-        empty_image = self._masking_strategy.apply(
-            image, self._player_masks, np.zeros((1, n), dtype=bool)
-        )[0]
-        return float(self.model(empty_image[np.newaxis])[0])
+        return float(self.value_function(image, np.zeros((1, n), dtype=bool))[0])
 
 
 class ViTArchitecture(ModelArchitectureStrategy):
@@ -164,6 +179,7 @@ class ViTArchitecture(ModelArchitectureStrategy):
         self._pixel_values: torch.Tensor | None = None
         self._class_id: int | None = None
         self._player_strategy_ref: LatentPlayerStrategy | None = None
+        self._player_masks: np.ndarray | None = None
 
     def default_player_strategy(self) -> PatchStrategy:
         """Return the default patch player strategy derived from the model config."""
@@ -186,6 +202,8 @@ class ViTArchitecture(ModelArchitectureStrategy):
         with torch.no_grad():
             logits = self.model(pixel_values=self._pixel_values).logits
         self._class_id = int(logits.argmax(-1).item())
+        if isinstance(player_strategy, PatchStrategy):
+            self._player_masks = _build_patch_pixel_masks(image, player_strategy)
 
     def value_function(self, _image: np.ndarray, coalitions: np.ndarray) -> np.ndarray:
         """Apply latent masking and return class probabilities for each coalition."""
@@ -443,12 +461,7 @@ class DINOv2Architecture(ModelArchitectureStrategy):
         pixel_values = inputs["pixel_values"].to(device)
         with torch.no_grad():
             out = self.model(pixel_values=pixel_values)
-        if hasattr(out, "pooler_output") and out.pooler_output is not None:
-            emb = out.pooler_output
-        elif hasattr(out, "last_hidden_state"):
-            emb = out.last_hidden_state[:, 0]  # CLS token
-        else:
-            emb = out
+        emb = _extract_hf_features(out)
         return emb / emb.norm(dim=-1, keepdim=True)
 
     def prepare(self, image: np.ndarray, player_strategy: PixelPlayerStrategy) -> None:
@@ -686,6 +699,48 @@ def get_architecture_for_model(
     if isinstance(model, ModelArchitectureStrategy):
         return model
 
+    try:
+        from transformers import CLIPModel, ViTForImageClassification
+    except ImportError:
+        CLIPModel = None  # type: ignore[misc, assignment]
+        ViTForImageClassification = None  # type: ignore[misc, assignment]
+
+    if ViTForImageClassification is not None and isinstance(model, ViTForImageClassification):
+        if processor is None:
+            msg = (
+                "ViT models require `processor=` when using shapiq.Explainer auto-dispatch. "
+                "Pass `architecture=ViTArchitecture(model, processor)` explicitly."
+            )
+            raise TypeError(msg)
+        return ViTArchitecture(model=model, processor=processor)
+
+    if CLIPModel is not None and isinstance(model, CLIPModel):
+        if processor is None:
+            msg = "CLIP models require `processor=` for auto-dispatch."
+            raise TypeError(msg)
+        text_prompts = kwargs.get("text_prompts")
+        if text_prompts is None:
+            msg = (
+                "CLIP models require `text_prompts=` when using shapiq.Explainer "
+                "auto-dispatch. Pass `architecture=CLIPArchitecture(...)` explicitly "
+                "or supply `text_prompts`."
+            )
+            raise TypeError(msg)
+        return CLIPArchitecture(
+            model=model,
+            processor=processor,
+            text_prompts=text_prompts,
+            target_prompt_idx=kwargs.get("target_prompt_idx", 0),
+        )
+
+    try:
+        import torchvision.models as tv_models
+    except ImportError:
+        tv_models = None  # type: ignore[assignment]
+
+    if tv_models is not None and isinstance(model, tv_models.ResNet):
+        return ResNetArchitecture(model=model)
+
     model_class = print_class(model)
 
     if processor is not None:
@@ -710,8 +765,10 @@ def get_architecture_for_model(
             )
         if "Dinov2" in model_class or "DINOv2" in model_class:
             return DINOv2Architecture(model=model, processor=processor)
-        if "ConvNeXt" in model_class or "ForImageClassification" in model_class:
+        if "ConvNeXt" in model_class:
             return ConvNeXtArchitecture(model=model, processor=processor)
+        if "ForImageClassification" in model_class:
+            return HuggingFacePixelArchitecture(model=model, processor=processor)
         return HuggingFacePixelArchitecture(model=model, processor=processor)
 
     if hasattr(model, "vit"):

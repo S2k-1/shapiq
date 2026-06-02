@@ -12,6 +12,7 @@ from shapiq.imputer.base import Imputer
 from shapiq.vision.architecture import ResNetArchitecture
 from shapiq.vision.imputer import ImageImputer
 from shapiq.vision.masking import MeanColorMasking, ZeroMasking
+from shapiq.vision.players import PatchStrategy
 
 from .conftest import FixedMasksStrategy, make_linear_pixel_model
 
@@ -46,6 +47,27 @@ class TestImageImputerBasics:
         imputer = _build_imputer(tiny_image, two_player_masks, np.ones((4, 4)), ZeroMasking())
         assert imputer.player_masks is not None
         np.testing.assert_array_equal(imputer.player_masks, two_player_masks)
+
+    def test_rejects_mismatched_player_strategy(self, tiny_image, two_player_masks) -> None:
+        arch = ResNetArchitecture(model=lambda x: np.zeros(x.shape[0]))
+        with pytest.raises(TypeError, match="PixelPlayerStrategy"):
+            ImageImputer(
+                architecture=arch,
+                image=tiny_image,
+                player_strategy=PatchStrategy(grid_size=4, n_players=4),
+            )
+
+    def test_rejects_mismatched_masking_strategy(self, tiny_image, two_player_masks) -> None:
+        from shapiq.vision.masking import BoolMaskedPosStrategy
+
+        arch = ResNetArchitecture(model=lambda x: np.zeros(x.shape[0]))
+        with pytest.raises(TypeError, match="PixelMaskingStrategy"):
+            ImageImputer(
+                architecture=arch,
+                image=tiny_image,
+                player_strategy=FixedMasksStrategy(two_player_masks),
+                masking_strategy=BoolMaskedPosStrategy(),
+            )
 
     def test_empty_prediction_with_zero_masking_is_zero(self, tiny_image, two_player_masks) -> None:
         imputer = _build_imputer(

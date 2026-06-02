@@ -373,14 +373,18 @@ class TestMarginalSampling:
     def test_is_pixel_masking_strategy(self, reference_bank) -> None:
         assert isinstance(MarginalSampling(reference_bank), PixelMaskingStrategy)
 
-    def test_full_coalition_preserves_image(self, tiny_image, two_player_masks, reference_bank) -> None:
+    def test_full_coalition_preserves_image(
+        self, tiny_image, two_player_masks, reference_bank
+    ) -> None:
         strategy = MarginalSampling(reference_bank, random_state=0)
         coalition = np.array([[True, True]])
         out = strategy.apply(tiny_image, two_player_masks, coalition)
         assert out.shape == (1, 4, 4, 3)
         np.testing.assert_array_equal(out[0], tiny_image)
 
-    def test_empty_coalition_uses_reference(self, tiny_image, two_player_masks, reference_bank) -> None:
+    def test_empty_coalition_uses_reference(
+        self, tiny_image, two_player_masks, reference_bank
+    ) -> None:
         # Force a single reference so the absent-everywhere output is deterministic.
         single = reference_bank[:1]
         strategy = MarginalSampling(single, random_state=0)
@@ -399,10 +403,16 @@ class TestMarginalSampling:
         np.testing.assert_array_equal(out[0, :, :2], tiny_image[:, :2])
         np.testing.assert_array_equal(out[0, :, 2:], single[0, :, 2:])
 
-    def test_same_seed_produces_same_output(self, tiny_image, two_player_masks, reference_bank) -> None:
+    def test_same_seed_produces_same_output(
+        self, tiny_image, two_player_masks, reference_bank
+    ) -> None:
         coalition = np.array([[False, False], [False, True], [True, False]])
-        a = MarginalSampling(reference_bank, random_state=42).apply(tiny_image, two_player_masks, coalition)
-        b = MarginalSampling(reference_bank, random_state=42).apply(tiny_image, two_player_masks, coalition)
+        a = MarginalSampling(reference_bank, random_state=42).apply(
+            tiny_image, two_player_masks, coalition
+        )
+        b = MarginalSampling(reference_bank, random_state=42).apply(
+            tiny_image, two_player_masks, coalition
+        )
         np.testing.assert_array_equal(a, b)
 
     def test_same_instance_reseeds_per_call(
@@ -642,9 +652,7 @@ class TestLayerMasking:
         small_image = np.random.default_rng(0).random((4, 4, 3))
         model = _TinyCNN().eval()
         with torch.no_grad():
-            model.head.weight.copy_(
-                torch.tensor([[1.0, 0.0, 0.0, 0.0], [-1.0, 0.0, 0.0, 0.0]])
-            )
+            model.head.weight.copy_(torch.tensor([[1.0, 0.0, 0.0, 0.0], [-1.0, 0.0, 0.0, 0.0]]))
 
         strategy = LayerMasking(layer_name="layer2")
         coalitions = np.array([[True, True], [True, False], [False, True]])

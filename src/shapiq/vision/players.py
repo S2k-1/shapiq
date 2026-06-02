@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 import warnings
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 
@@ -202,58 +202,128 @@ class GridStrategy(PixelPlayerStrategy):
 
 
 class SuperpixelStrategy(PixelPlayerStrategy):
-    """Splits the image into superpixels using SLIC."""
+    """Splits the image into superpixels using SLIC.
 
-    def __init__(self, n_segments: int = 10) -> None:
-        """Initialize the SuperpixelStrategy.
+    Args:
+        n_segments: Target number of superpixel segments. Required unless ``mask`` is
+            provided. Defaults to ``10``.
+        algorithm: ``"slic"`` (default) or ``"slico"`` (regular-sized superpixels).
+        mask: Optional precomputed segmentation — either a 2D integer label array
+            ``(H, W)`` or a 3D boolean array ``(n_players, H, W)`` with non-overlapping
+            regions. For overlapping regions use :class:`CustomMasksStrategy` instead.
+    """
 
-        Args:
-            n_segments: Target number of superpixel segments (players).
-        """
+    def __init__(
+        self,
+        n_segments: int = 10,
+        *,
+        algorithm: Literal["slic", "slico"] = "slic",
+        mask: np.ndarray | None = None,
+    ) -> None:
+        """Initialize the SuperpixelStrategy."""
+        if mask is None and n_segments is None:
+            msg = "Either n_segments or mask must be provided."
+            raise ValueError(msg)
         self.n_segments = n_segments
+        self._algorithm = algorithm
+        self._custom_mask: np.ndarray | None = None
+        self._n_players: int = n_segments if mask is None else 0
+        if mask is not None:
+            self.set_mask(mask)
+
+    @staticmethod
+    def _labels_to_masks(labels: np.ndarray) -> np.ndarray:
+        """Convert a 2D integer label array to ``(n_players, H, W)`` boolean masks."""
+        unique_labels = np.unique(labels)
+        return labels == unique_labels.reshape(-1, 1, 1)
+
+    def set_mask(self, mask: np.ndarray) -> None:
+        """Validate and store a user-provided segmentation mask."""
+        mask = np.asarray(mask)
+
+        if mask.ndim == 2:
+            if not np.issubdtype(mask.dtype, np.integer):
+                msg = "2D mask must contain integer labels."
+                raise ValueError(msg)
+            if mask.size == 0:
+                msg = "Provided 2D mask is empty."
+                raise ValueError(msg)
+            mask = self._labels_to_masks(mask)
+
+        if mask.ndim == 3:
+            mask = mask.astype(bool)
+            if (mask.sum(axis=0) > 1).any():
+                msg = (
+                    "Masks are overlapping — each pixel must belong to exactly one player. "
+                    "Use CustomMasksStrategy for overlapping regions."
+                )
+                raise ValueError(msg)
+            if not mask.any(axis=0).all():
+                msg = "Not all pixels are covered by at least one player."
+                raise ValueError(msg)
+        else:
+            msg = (
+                "mask must be either a 2D label array (H, W) or a "
+                "3D boolean array (n_players, H, W)."
+            )
+            raise ValueError(msg)
+
+        self._custom_mask = mask
+        self.n_segments = mask.shape[0]
+        self._n_players = mask.shape[0]
 
     def get_masks(self, image: np.ndarray) -> np.ndarray:
         """Run SLIC and return per-segment boolean masks of shape ``(n_players, H, W)``.
 
-        If SLIC produces fewer segments than requested, the segment count is nudged
-        upward and SLIC is retried up to 20 times.  If the target still cannot be
-        reached, a warning is issued and ``n_segments`` is updated to the actual
-        count so that ``n_players`` stays consistent with the returned masks.
-
-        Args:
-            image: ``(H, W, C)`` image array.
-
-        Returns:
-            Boolean mask array of shape ``(n_players, H, W)``.
+        SLIC may return more or fewer segments than ``n_segments``. The actual segment
+        count is stored in ``_n_players`` and exposed via :attr:`n_players` — labels
+        are never clipped or merged.
         """
+        if self._custom_mask is not None:
+            if self._custom_mask.shape[1:] != image.shape[:2]:
+                msg = (
+                    f"Custom mask shape {self._custom_mask.shape[1:]} does not match "
+                    f"image shape {image.shape[:2]}."
+                )
+                raise ValueError(msg)
+            return self._custom_mask
+
         from skimage.segmentation import slic
 
-        superpixels = slic(image, n_segments=self.n_segments, start_label=1, slic_zero=True)
+        slic_zero = self._algorithm == "slico"
+        superpixels = slic(image, n_segments=self.n_segments, start_label=1, slic_zero=slic_zero)
         n_superpixels = len(np.unique(superpixels))
 
         if n_superpixels < self.n_segments:
             iteration, n_segments_iter = 0, self.n_segments
             while iteration < 20 and n_superpixels < self.n_segments:
                 n_segments_iter += 1
-                superpixels = slic(image, n_segments=n_segments_iter, start_label=1, slic_zero=True)
+                superpixels = slic(
+                    image,
+                    n_segments=n_segments_iter,
+                    start_label=1,
+                    slic_zero=slic_zero,
+                )
                 n_superpixels = len(np.unique(superpixels))
                 iteration += 1
 
-        if n_superpixels >= self.n_segments:
-            superpixels = np.clip(superpixels, a_min=1, a_max=self.n_segments)
-            n_superpixels = self.n_segments
-        else:
+        if n_superpixels < self.n_segments:
             warnings.warn(
                 f"SLIC could only produce {n_superpixels} superpixels for the requested "
                 f"{self.n_segments}. Using {n_superpixels} players instead.",
                 stacklevel=2,
             )
-            self.n_segments = n_superpixels
+        elif n_superpixels > self.n_segments:
+            warnings.warn(
+                f"SLIC produced {n_superpixels} superpixels (requested {self.n_segments}). "
+                f"Using all {n_superpixels} segments as players.",
+                stacklevel=2,
+            )
 
-        players = np.arange(1, self.n_segments + 1).reshape(-1, 1, 1)
-        return superpixels == players
+        self._n_players = n_superpixels
+        return self._labels_to_masks(superpixels)
 
     @property
     def n_players(self) -> int:
-        """Return the number of superpixel segments."""
-        return self.n_segments
+        """Return the number of superpixel segments (actual count after ``get_masks``)."""
+        return self._n_players

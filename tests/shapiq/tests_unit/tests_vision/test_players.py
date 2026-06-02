@@ -92,12 +92,12 @@ class TestSuperpixelStrategy:
         image = rng.integers(0, 255, size=(32, 32, 3)).astype(np.float64)
         strategy = SuperpixelStrategy(n_segments=4)
         masks = strategy.get_masks(image)
-        assert masks.shape[0] == 4
+        assert masks.shape[0] == strategy.n_players
         assert masks.shape[1:] == (32, 32)
         assert masks.dtype == bool
 
     def test_get_masks_partition_property(self) -> None:
-        """Each pixel should be covered by exactly one superpixel (after clipping)."""
+        """Each pixel should belong to exactly one superpixel."""
         rng = np.random.default_rng(1)
         image = rng.integers(0, 255, size=(24, 24, 3)).astype(np.float64)
         strategy = SuperpixelStrategy(n_segments=6)
@@ -105,6 +105,21 @@ class TestSuperpixelStrategy:
         coverage = masks.sum(axis=0)
         # Every pixel is covered by exactly one segment.
         assert (coverage == 1).all()
+
+    def test_custom_label_mask(self) -> None:
+        labels = np.array([[1, 1, 2, 2], [1, 1, 2, 2], [3, 3, 4, 4], [3, 3, 4, 4]])
+        strategy = SuperpixelStrategy(mask=labels)
+        image = np.zeros((4, 4, 3))
+        masks = strategy.get_masks(image)
+        assert masks.shape == (4, 4, 4)
+        assert (masks.sum(axis=0) == 1).all()
+
+    def test_rejects_overlapping_custom_mask(self) -> None:
+        masks = np.zeros((2, 4, 4), dtype=bool)
+        masks[0, :, :2] = True
+        masks[1, :, 1:3] = True
+        with pytest.raises(ValueError, match="overlapping"):
+            SuperpixelStrategy(mask=masks)
 
 
 class TestGridStrategy:
