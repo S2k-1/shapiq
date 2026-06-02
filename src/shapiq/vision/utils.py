@@ -14,7 +14,45 @@ if TYPE_CHECKING:
 else:
     ImageLike = np.ndarray
 
-__all__ = ["ImageLike", "as_hwc_array"]
+__all__ = ["ImageLike", "as_hwc_array", "is_image_like"]
+
+
+def is_image_like(data: object) -> bool:
+    """Return whether ``data`` looks like a single image rather than tabular background data.
+
+    Used by :class:`~shapiq.explainer.base.Explainer` to auto-dispatch to
+    :class:`~shapiq.vision.explainer.ImageExplainer`.
+
+    Args:
+        data: Candidate image input (numpy array, PIL image, or PyTorch tensor).
+
+    Returns:
+        ``True`` if ``data`` is a PIL image, a PyTorch image tensor, a ``(H, W, C)``
+        numpy array, or a ``(H, W)`` grayscale array that is unlikely to be a tabular
+        background matrix.
+    """
+    if data is None:
+        return False
+    if _try_convert_pil_image(data) is not None:
+        return True
+    try:
+        import torch
+    except ImportError:
+        torch = None  # type: ignore[assignment]
+    if torch is not None and isinstance(data, torch.Tensor):
+        return data.ndim in (2, 3, 4)
+    if isinstance(data, np.ndarray):
+        if data.ndim == 3:
+            return True
+        if data.ndim == 2:
+            rows, cols = data.shape
+            if rows == cols:
+                return True
+            smaller, larger = sorted((rows, cols))
+            if smaller <= 64 and larger / smaller > 2:
+                return False
+            return True
+    return False
 
 
 def as_hwc_array(image: ImageLike) -> np.ndarray:

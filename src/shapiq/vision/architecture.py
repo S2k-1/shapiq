@@ -25,6 +25,7 @@ from .players import (
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+    from typing import Any
 
     import torch
 
@@ -530,3 +531,74 @@ class CustomViTArchitecture(ModelArchitectureStrategy):
         """Return the model prediction for the empty coalition."""
         n = self._player_strategy_ref.n_players
         return float(self.value_function(image, np.zeros((1, n), dtype=bool))[0])
+
+
+def get_architecture_for_model(
+    model: Model,
+    *,
+    architecture: ModelArchitectureStrategy | None = None,
+    processor: object | None = None,
+    **kwargs: Any,
+) -> ModelArchitectureStrategy:
+    """Pick a default :class:`ModelArchitectureStrategy` for ``model``.
+
+    Used by :class:`~shapiq.explainer.base.Explainer` when ``data`` is image-like.
+    Pass ``architecture=`` explicitly to override inference. HuggingFace models that
+    need a processor (ViT, ConvNeXt, CLIP, DINOv2) require ``processor=`` unless the
+    model is already wrapped in a strategy instance.
+
+    Args:
+        model: The model to explain, or an existing architecture strategy.
+        architecture: Explicit architecture override.
+        processor: HuggingFace image processor, when required by the detected model type.
+        **kwargs: Extra constructor args (e.g. ``text_prompts`` for CLIP).
+
+    Returns:
+        A ready-to-use architecture strategy.
+
+    Raises:
+        TypeError: If a HuggingFace model needs extra arguments that were not provided.
+    """
+    from shapiq.explainer.utils import print_class
+
+    if architecture is not None:
+        return architecture
+    if isinstance(model, ModelArchitectureStrategy):
+        return model
+
+    model_class = print_class(model)
+
+    if processor is not None:
+        if "ViTForImageClassification" in model_class or (
+            hasattr(model, "vit") and "ForImageClassification" in model_class
+        ):
+            return ViTArchitecture(model=model, processor=processor)
+        if "CLIPModel" in model_class:
+            text_prompts = kwargs.get("text_prompts")
+            if text_prompts is None:
+                msg = (
+                    "CLIP models require `text_prompts=` when using shapiq.Explainer "
+                    "auto-dispatch. Pass `architecture=CLIPArchitecture(...)` explicitly "
+                    "or supply `text_prompts`."
+                )
+                raise TypeError(msg)
+            return CLIPArchitecture(
+                model=model,
+                processor=processor,
+                text_prompts=text_prompts,
+                target_prompt_idx=kwargs.get("target_prompt_idx", 0),
+            )
+        if "Dinov2" in model_class or "DINOv2" in model_class:
+            return DINOv2Architecture(model=model, processor=processor)
+        if "ConvNeXt" in model_class or "ForImageClassification" in model_class:
+            return ConvNeXtArchitecture(model=model, processor=processor)
+        return HuggingFacePixelArchitecture(model=model, processor=processor)
+
+    if hasattr(model, "vit"):
+        msg = (
+            "ViT models require `processor=` when using shapiq.Explainer auto-dispatch. "
+            "Pass `architecture=ViTArchitecture(model, processor)` explicitly."
+        )
+        raise TypeError(msg)
+
+    return ResNetArchitecture(model=model)

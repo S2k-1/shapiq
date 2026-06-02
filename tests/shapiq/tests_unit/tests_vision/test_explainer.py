@@ -5,6 +5,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from shapiq import Explainer
+from shapiq.explainer.utils import get_explainers
 from shapiq.interaction_values import InteractionValues
 from shapiq.vision import ImageExplainer
 from shapiq.vision.architecture import ResNetArchitecture
@@ -65,3 +67,37 @@ class TestImageExplainer:
         assert result.n_players == 3
         # Every value should be a finite number.
         assert np.isfinite(result.values).all()
+
+
+class TestExplainerAutoDispatch:
+    def test_get_explainers_includes_vision(self) -> None:
+        assert "vision" in get_explainers()
+        assert get_explainers()["vision"] is ImageExplainer
+
+    def test_explainer_dispatches_to_image_explainer(self, tiny_image, two_player_masks) -> None:
+        arch, strategy = _arch_and_strategy(tiny_image, two_player_masks, np.ones((4, 4)))
+        explainer = Explainer(
+            model=arch.model,
+            data=tiny_image,
+            player_strategy=strategy,
+            index="k-SII",
+            max_order=2,
+            random_state=0,
+        )
+        assert isinstance(explainer, ImageExplainer)
+        result = explainer.explain_function(tiny_image, budget=16)
+        assert isinstance(result, InteractionValues)
+        assert result.n_players == 2
+
+    def test_explainer_accepts_architecture_strategy_as_model(
+        self, tiny_image, two_player_masks
+    ) -> None:
+        arch, strategy = _arch_and_strategy(tiny_image, two_player_masks, np.ones((4, 4)))
+        explainer = Explainer(
+            model=arch,
+            data=tiny_image,
+            player_strategy=strategy,
+            random_state=0,
+        )
+        assert isinstance(explainer, ImageExplainer)
+        assert explainer.imputer.architecture is arch

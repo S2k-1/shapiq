@@ -7,7 +7,28 @@ import pytest
 import torch
 from PIL import Image
 
-from shapiq.vision.utils import as_hwc_array
+from shapiq.vision.utils import as_hwc_array, is_image_like
+
+
+class TestIsImageLike:
+    def test_rgb_numpy_array(self) -> None:
+        assert is_image_like(np.zeros((8, 8, 3)))
+
+    def test_grayscale_square_array(self) -> None:
+        assert is_image_like(np.zeros((16, 16)))
+
+    def test_tabular_background_matrix(self) -> None:
+        assert not is_image_like(np.zeros((100, 20)))
+
+    def test_pil_image(self) -> None:
+        arr = np.arange(12, dtype=np.uint8).reshape(2, 2, 3)
+        assert is_image_like(Image.fromarray(arr, mode="RGB"))
+
+    def test_torch_tensor(self) -> None:
+        assert is_image_like(torch.zeros(3, 8, 8))
+
+    def test_none_is_false(self) -> None:
+        assert not is_image_like(None)
 
 
 class TestAsHwcArray:

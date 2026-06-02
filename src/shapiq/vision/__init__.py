@@ -31,7 +31,7 @@ from .players import (
     PlayerStrategy,
     SuperpixelStrategy,
 )
-from .utils import ImageLike, as_hwc_array
+from .utils import ImageLike, as_hwc_array, is_image_like
 
 __all__ = [
     # Architecture
@@ -59,6 +59,7 @@ __all__ = [
     "MaskTokenStrategy",
     "ImageLike",
     "as_hwc_array",
+    "is_image_like",
     # Players
     "PlayerStrategy",
     "PixelPlayerStrategy",
