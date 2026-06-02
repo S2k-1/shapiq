@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+import torch
+from PIL import Image
 
 from shapiq.game_theory.exact import ExactComputer
 from shapiq.imputer.base import Imputer
@@ -146,3 +148,31 @@ class TestImageImputerValues:
         # the original image minus the normalization value.
         expected_full = tiny_image.sum() - imputer.empty_prediction
         assert out[1] == pytest.approx(expected_full)
+
+
+class TestImageImputerInputFormats:
+    @pytest.mark.parametrize(
+        "image_input",
+        [
+            pytest.param(lambda img: img, id="numpy"),
+            pytest.param(lambda img: Image.fromarray(img.astype(np.uint8)), id="pil"),
+            pytest.param(
+                lambda img: torch.from_numpy(img).permute(2, 0, 1),
+                id="torch_chw",
+            ),
+        ],
+    )
+    def test_accepts_common_image_formats(self, tiny_image, two_player_masks, image_input) -> None:
+        arch = ResNetArchitecture(
+            model=lambda batch: np.mean(batch, axis=(1, 2, 3)),
+            masking_strategy=ZeroMasking(),
+        )
+        imputer = ImageImputer(
+            architecture=arch,
+            image=image_input(tiny_image),
+            player_strategy=FixedMasksStrategy(two_player_masks),
+            normalize=False,
+        )
+        values = imputer.value_function(np.array([[True, True]]))
+        assert values.shape == (1,)
+        np.testing.assert_allclose(values[0], tiny_image.mean())

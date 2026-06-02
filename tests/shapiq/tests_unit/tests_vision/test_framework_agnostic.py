@@ -75,6 +75,7 @@ class TestNoModuleLevelTorch:
             "shapiq.vision.imputer",
             "shapiq.vision.masking",
             "shapiq.vision.players",
+            "shapiq.vision.utils",
         ],
     )
     def test_torch_not_in_module_namespace(self, module_name: str) -> None:

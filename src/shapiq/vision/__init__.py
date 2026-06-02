@@ -14,6 +14,8 @@ from .imputer import ImageImputer
 from .masking import (
     BlurMasking,
     BoolMaskedPosStrategy,
+    DatasetMeanMasking,
+    GaussianNoiseMasking,
     LatentMaskingStrategy,
     MaskTokenStrategy,
     MeanColorMasking,
@@ -29,6 +31,7 @@ from .players import (
     PlayerStrategy,
     SuperpixelStrategy,
 )
+from .utils import ImageLike, as_hwc_array
 
 __all__ = [
     # Architecture
@@ -51,7 +54,11 @@ __all__ = [
     "ZeroMasking",
     "BlurMasking",
     "BoolMaskedPosStrategy",
+    "DatasetMeanMasking",
+    "GaussianNoiseMasking",
     "MaskTokenStrategy",
+    "ImageLike",
+    "as_hwc_array",
     # Players
     "PlayerStrategy",
     "PixelPlayerStrategy",

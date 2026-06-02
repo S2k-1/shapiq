@@ -133,6 +133,100 @@ class BlurMasking(PixelMaskingStrategy):
         return np.where(absence_mask[..., np.newaxis], blurred[np.newaxis], masked_images)
 
 
+class DatasetMeanMasking(PixelMaskingStrategy):
+    """Imputes absent players' regions with a fixed dataset-wide mean color.
+
+    Unlike :class:`MeanColorMasking`, which uses the mean color of the image being
+    explained, this strategy uses a pre-computed baseline (for example the mean RGB
+    vector over a training set).
+
+    Args:
+        mean_color: Baseline color as a scalar, length-``C`` vector, or broadcastable
+            array. Defaults to ImageNet normalization means ``[0.485, 0.456, 0.406]``.
+
+    Example::
+
+        masking = DatasetMeanMasking(mean_color=[0.5, 0.5, 0.5])
+        imputer = ImageImputer(arch, image, masking_strategy=masking)
+    """
+
+    _IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float64)
+
+    def __init__(self, mean_color: np.ndarray | float | None = None) -> None:
+        """Initialize the DatasetMeanMasking strategy."""
+        if mean_color is None:
+            self.mean_color = self._IMAGENET_MEAN.copy()
+        else:
+            self.mean_color = np.asarray(mean_color, dtype=np.float64)
+
+    def apply(
+        self, image: np.ndarray, player_masks: np.ndarray, coalition: np.ndarray
+    ) -> np.ndarray:
+        """Apply dataset-mean masking to a batch of coalitions."""
+        n_coalitions = coalition.shape[0]
+        H, W, C = image.shape
+        fill = np.broadcast_to(self.mean_color, (C,))
+
+        masked_images = np.stack([image] * n_coalitions, axis=0)
+        absence_mask = np.zeros((n_coalitions, H, W), dtype=bool)
+        for i, coal in enumerate(coalition):
+            for j, is_present in enumerate(coal):
+                if not is_present:
+                    absence_mask[i] |= player_masks[j]
+
+        masked_images[absence_mask] = fill
+        return masked_images
+
+
+class GaussianNoiseMasking(PixelMaskingStrategy):
+    """Imputes absent players' regions with Gaussian noise.
+
+    Absent regions are replaced with i.i.d. Gaussian noise. This can act as a
+    stochastic baseline when the model should not rely on structured content in
+    hidden areas.
+
+    Args:
+        mean: Mean of the Gaussian noise. Defaults to ``0.0``.
+        std: Standard deviation of the Gaussian noise. Defaults to ``1.0``.
+        random_state: Optional seed for reproducible noise fields.
+
+    Example::
+
+        masking = GaussianNoiseMasking(mean=0.0, std=0.1, random_state=0)
+        imputer = ImageImputer(arch, image, masking_strategy=masking)
+    """
+
+    def __init__(
+        self,
+        mean: float = 0.0,
+        std: float = 1.0,
+        *,
+        random_state: int | None = None,
+    ) -> None:
+        """Initialize the GaussianNoiseMasking strategy."""
+        self.mean = mean
+        self.std = std
+        self.random_state = random_state
+
+    def apply(
+        self, image: np.ndarray, player_masks: np.ndarray, coalition: np.ndarray
+    ) -> np.ndarray:
+        """Apply Gaussian-noise masking to a batch of coalitions."""
+        n_coalitions = coalition.shape[0]
+        H, W, _ = image.shape
+        rng = np.random.default_rng(self.random_state)
+        noise = rng.normal(self.mean, self.std, size=(H, W, image.shape[2]))
+
+        masked_images = np.stack([image] * n_coalitions, axis=0)
+        absence_mask = np.zeros((n_coalitions, H, W), dtype=bool)
+        for i, coal in enumerate(coalition):
+            for j, is_present in enumerate(coal):
+                if not is_present:
+                    absence_mask[i] |= player_masks[j]
+
+        return np.where(absence_mask[..., np.newaxis], noise[np.newaxis], masked_images)
+
+
 class LatentMaskingStrategy(ABC):
     """Defines how tokens are masked in latent/embedding space."""
 

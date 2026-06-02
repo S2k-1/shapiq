@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from .architecture import ModelArchitectureStrategy
     from .masking import LatentMaskingStrategy, PixelMaskingStrategy
     from .players import PlayerStrategy
+    from .utils import ImageLike
 
 ImageExplainerIndices = ExplainerIndices
 
@@ -30,7 +31,7 @@ class ImageExplainer(Explainer):
 
     Args:
         architecture: The model architecture strategy.
-        data: The ``(H, W, C)`` image array to explain.
+        data: Image to explain as a ``(H, W, C)`` numpy array, PIL image, or tensor.
         player_strategy: Player partitioning strategy. Defaults to the architecture's default.
         masking_strategy: Masking strategy for absent players. Defaults to the architecture's
             default.
@@ -43,7 +44,7 @@ class ImageExplainer(Explainer):
     def __init__(
         self,
         architecture: ModelArchitectureStrategy,
-        data: np.ndarray | None = None,
+        data: ImageLike | None = None,
         *,
         player_strategy: PlayerStrategy | None = None,
         masking_strategy: PixelMaskingStrategy | LatentMaskingStrategy | None = None,
@@ -56,7 +57,7 @@ class ImageExplainer(Explainer):
 
         Args:
             architecture: The model architecture strategy.
-            data: The ``(H, W, C)`` image array to explain.
+            data: Image to explain as a ``(H, W, C)`` numpy array, PIL image, or tensor.
             player_strategy: Player partitioning strategy. Defaults to the architecture's default.
             masking_strategy: Masking strategy for absent players. Defaults to the architecture's
                 default.
@@ -83,7 +84,9 @@ class ImageExplainer(Explainer):
             random_state=random_state,
         )
 
-    def explain_function(self, x: np.ndarray | None = None, *, budget: int = 64) -> InteractionValues:
+    def explain_function(
+        self, x: np.ndarray | None = None, *, budget: int = 64
+    ) -> InteractionValues:
         """Compute interaction values for the image.
 
         Args:
