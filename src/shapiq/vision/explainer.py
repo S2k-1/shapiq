@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from .architecture import ModelArchitectureStrategy
     from .masking import LatentMaskingStrategy, PixelMaskingStrategy
     from .players import PlayerStrategy
-    from .utils import ImageLike
+    from .utils import AutoBatchSize, ImageLike
 
 ImageExplainerIndices = ExplainerIndices
 
@@ -38,7 +38,8 @@ class ImageExplainer(Explainer):
         index: Interaction index to compute. Defaults to ``"k-SII"``.
         max_order: Maximum interaction order. Defaults to ``2``.
         random_state: Optional random seed for reproducibility.
-        batch_size: Maximum coalitions per forward pass. Evaluates all at once if ``None``.
+        batch_size: Maximum coalitions per forward pass. ``"auto"`` (default) picks a
+            hardware-aware batch size. ``None`` evaluates all coalitions at once.
     """
 
     def __init__(
@@ -51,7 +52,7 @@ class ImageExplainer(Explainer):
         index: ImageExplainerIndices = "k-SII",
         max_order: int = 2,
         random_state: int | None = None,
-        batch_size: int | None = None,
+        batch_size: AutoBatchSize = "auto",
     ) -> None:
         """Initialize the ImageExplainer.
 
@@ -64,7 +65,8 @@ class ImageExplainer(Explainer):
             index: Interaction index to compute. Defaults to ``"k-SII"``.
             max_order: Maximum interaction order. Defaults to ``2``.
             random_state: Optional random seed for reproducibility.
-            batch_size: Maximum coalitions per forward pass. Evaluates all at once if ``None``.
+            batch_size: Maximum coalitions per forward pass. ``"auto"`` picks a sensible
+                default; ``None`` evaluates all coalitions at once.
         """
         super().__init__(model=architecture.model, index=index, max_order=max_order)
 

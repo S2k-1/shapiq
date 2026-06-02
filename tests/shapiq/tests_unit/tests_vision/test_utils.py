@@ -7,7 +7,16 @@ import pytest
 import torch
 from PIL import Image
 
-from shapiq.vision.utils import as_hwc_array, is_image_like
+from shapiq.vision.architecture import ResNetArchitecture, ViTArchitecture
+from shapiq.vision.masking import BoolMaskedPosStrategy, ZeroMasking
+from shapiq.vision.utils import (
+    as_hwc_array,
+    get_torch_device,
+    infer_default_batch_size,
+    is_image_like,
+    resolve_batch_size,
+    tensor_to_numpy,
+)
 
 
 class TestIsImageLike:
@@ -73,3 +82,56 @@ class TestAsHwcArray:
     def test_invalid_type_raises(self) -> None:
         with pytest.raises(TypeError, match="image must be"):
             as_hwc_array({"not": "an image"})
+
+
+class TestTorchDeviceHelpers:
+    def test_get_torch_device_from_tensor(self) -> None:
+        tensor = torch.zeros(2, 3)
+        assert get_torch_device(tensor) == torch.device("cpu")
+
+    def test_get_torch_device_from_module(self) -> None:
+        module = torch.nn.Linear(2, 1)
+        assert get_torch_device(module) == torch.device("cpu")
+
+    def test_tensor_to_numpy_from_cpu(self) -> None:
+        tensor = torch.tensor([1.0, 2.0])
+        np.testing.assert_array_equal(tensor_to_numpy(tensor), np.array([1.0, 2.0]))
+
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+    def test_get_torch_device_from_cuda_module(self) -> None:
+        module = torch.nn.Linear(2, 1).cuda()
+        assert get_torch_device(module).type == "cuda"
+
+
+class TestBatchSizeInference:
+    def test_cpu_pixel_path_returns_small_batch(self) -> None:
+        image = np.zeros((8, 8, 3))
+        arch = ResNetArchitecture(
+            model=lambda x: np.zeros(x.shape[0]), masking_strategy=ZeroMasking()
+        )
+        batch_size = infer_default_batch_size(arch, image, n_players=4)
+        assert batch_size == 2
+
+    def test_cpu_latent_path_returns_larger_batch(self) -> None:
+        image = np.zeros((16, 16, 3))
+        arch = ViTArchitecture(
+            model=object(),
+            processor=object(),
+            masking_strategy=BoolMaskedPosStrategy(),
+        )
+        batch_size = infer_default_batch_size(arch, image, n_players=4)
+        assert batch_size == 4
+
+    def test_resolve_auto_returns_int(self) -> None:
+        image = np.zeros((8, 8, 3))
+        arch = ResNetArchitecture(
+            model=lambda x: np.zeros(x.shape[0]), masking_strategy=ZeroMasking()
+        )
+        assert isinstance(resolve_batch_size("auto", arch, image, 4), int)
+
+    def test_resolve_none_keeps_unbatched(self) -> None:
+        image = np.zeros((8, 8, 3))
+        arch = ResNetArchitecture(
+            model=lambda x: np.zeros(x.shape[0]), masking_strategy=ZeroMasking()
+        )
+        assert resolve_batch_size(None, arch, image, 4) is None

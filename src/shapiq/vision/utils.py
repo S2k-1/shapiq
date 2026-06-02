@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 
@@ -10,11 +10,24 @@ if TYPE_CHECKING:
     import torch
     from PIL.Image import Image as PILImage
 
+    from .architecture import ModelArchitectureStrategy
+
     ImageLike = np.ndarray | PILImage | torch.Tensor
+    AutoBatchSize = int | Literal["auto"] | None
 else:
     ImageLike = np.ndarray
+    AutoBatchSize = int | str | None
 
-__all__ = ["ImageLike", "as_hwc_array", "is_image_like"]
+__all__ = [
+    "AutoBatchSize",
+    "ImageLike",
+    "as_hwc_array",
+    "get_torch_device",
+    "infer_default_batch_size",
+    "is_image_like",
+    "resolve_batch_size",
+    "tensor_to_numpy",
+]
 
 
 def is_image_like(data: object) -> bool:
@@ -146,3 +159,101 @@ def _try_convert_torch_tensor(image: object) -> np.ndarray | None:
         return tensor.numpy()
     msg = f"Expected PyTorch tensor with 2, 3, or 4 dimensions, got shape {tuple(tensor.shape)}"
     raise ValueError(msg)
+
+
+def get_torch_device(obj: object) -> torch.device:
+    """Return the ``torch.device`` for a model, module, or tensor.
+
+    Inspects ``.parameters()`` and ``.buffers()`` when present. Falls back to CPU
+    when PyTorch is unavailable or no tensors are found.
+    """
+    try:
+        import torch
+    except ImportError as exc:
+        msg = "PyTorch is required to resolve a torch device"
+        raise ImportError(msg) from exc
+
+    if isinstance(obj, torch.Tensor):
+        return obj.device
+
+    for accessor in (getattr(obj, "parameters", None), getattr(obj, "buffers", None)):
+        if callable(accessor):
+            try:
+                return next(accessor()).device
+            except StopIteration:
+                continue
+
+    return torch.device("cpu")
+
+
+def tensor_to_numpy(tensor: torch.Tensor) -> np.ndarray:
+    """Convert a PyTorch tensor to a numpy array, copying from GPU when needed."""
+    return tensor.detach().cpu().numpy()
+
+
+def infer_default_batch_size(
+    architecture: ModelArchitectureStrategy,
+    image: np.ndarray,
+    n_players: int,
+) -> int:
+    """Pick a conservative coalition batch size from image size, players, and hardware.
+
+    Heuristics follow the guidance in ``supplementary/batching_details.ipynb``:
+    small batches on CPU, moderate batches on consumer GPUs, and larger batches for
+    latent-space ViT paths where each coalition reuses cached pixel values.
+    """
+    from .masking import LatentMaskingStrategy
+
+    is_latent = isinstance(architecture.masking_strategy, LatentMaskingStrategy)
+    pixel_count = int(image.shape[0] * image.shape[1])
+
+    cuda_available = False
+    vram_gb = 0.0
+    try:
+        import torch
+
+        cuda_available = torch.cuda.is_available()
+        if cuda_available:
+            device = get_torch_device(architecture.model)
+            device_index = device.index if device.index is not None else 0
+            if device.type != "cuda":
+                device_index = 0
+            vram_gb = torch.cuda.get_device_properties(device_index).total_memory / (1024**3)
+    except ImportError:
+        pass
+
+    if not cuda_available:
+        return 4 if is_latent else 2
+
+    if is_latent:
+        if n_players >= 196:
+            return 16
+        if n_players >= 64:
+            return 32
+        return 64 if vram_gb >= 24 else 32
+
+    if pixel_count <= 32 * 32:
+        return 64 if vram_gb >= 16 else 16
+    if pixel_count <= 224 * 224:
+        if vram_gb >= 24:
+            return 128
+        if vram_gb >= 12:
+            return 32
+        return 16
+    return 8 if vram_gb >= 12 else 4
+
+
+def resolve_batch_size(
+    batch_size: AutoBatchSize,
+    architecture: ModelArchitectureStrategy,
+    image: np.ndarray,
+    n_players: int,
+) -> int | None:
+    """Resolve ``batch_size`` after ``"auto"`` selection.
+
+    ``"auto"`` (the default) picks a hardware-aware batch size. ``None`` keeps the
+    legacy behaviour of evaluating all coalitions in one forward pass.
+    """
+    if batch_size == "auto":
+        return infer_default_batch_size(architecture, image, n_players)
+    return batch_size

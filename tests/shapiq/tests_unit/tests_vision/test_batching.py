@@ -130,7 +130,7 @@ class TestBatchingPropagation:
         )
         assert explainer.imputer.batch_size == 4
 
-    def test_default_batch_size_is_none(self, setup_image_and_masks) -> None:
+    def test_default_batch_size_is_auto_inferred(self, setup_image_and_masks) -> None:
         image, masks = setup_image_and_masks
         arch = _CountingResNet(
             model=make_linear_pixel_model(np.ones((4, 4))),
@@ -138,6 +138,21 @@ class TestBatchingPropagation:
         )
         imputer = ImageImputer(
             architecture=arch, image=image, player_strategy=FixedMasksStrategy(masks)
+        )
+        assert isinstance(imputer.batch_size, int)
+        assert imputer.batch_size > 0
+
+    def test_explicit_none_batch_size_evaluates_all_at_once(self, setup_image_and_masks) -> None:
+        image, masks = setup_image_and_masks
+        arch = _CountingResNet(
+            model=make_linear_pixel_model(np.ones((4, 4))),
+            masking_strategy=ZeroMasking(),
+        )
+        imputer = ImageImputer(
+            architecture=arch,
+            image=image,
+            player_strategy=FixedMasksStrategy(masks),
+            batch_size=None,
         )
         assert imputer.batch_size is None
 

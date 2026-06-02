@@ -22,6 +22,7 @@ from .players import (
     PlayerStrategy,
     SuperpixelStrategy,
 )
+from .utils import get_torch_device, tensor_to_numpy
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -175,8 +176,9 @@ class ViTArchitecture(ModelArchitectureStrategy):
         import torch
 
         self._player_strategy_ref = player_strategy
+        device = get_torch_device(self.model)
         inputs = self.processor(images=image, return_tensors="pt")
-        self._pixel_values = inputs["pixel_values"]
+        self._pixel_values = inputs["pixel_values"].to(device)
         with torch.no_grad():
             logits = self.model(pixel_values=self._pixel_values).logits
         self._class_id = int(logits.argmax(-1).item())
@@ -187,13 +189,16 @@ class ViTArchitecture(ModelArchitectureStrategy):
 
         if coalitions.ndim == 1:
             coalitions = coalitions.reshape(1, -1)
-        bool_masks = torch.stack([self._player_strategy_ref.get_latent_mask(c) for c in coalitions])
+        device = self._pixel_values.device
+        bool_masks = torch.stack(
+            [self._player_strategy_ref.get_latent_mask(c) for c in coalitions]
+        ).to(device)
         with torch.no_grad():
             logits = self._masking_strategy.predict_logits(
                 self.model, self._pixel_values, bool_masks
             )
             probs = torch.softmax(logits, dim=-1)
-        return probs[:, self._class_id].cpu().numpy()
+        return tensor_to_numpy(probs[:, self._class_id])
 
     def calc_empty_prediction(self, image: np.ndarray) -> float:
         """Return the model prediction for the empty coalition."""
@@ -254,19 +259,23 @@ class HuggingFacePixelArchitecture(ModelArchitectureStrategy):
 
         self._player_masks = player_strategy.get_masks(image)
         if self.class_id is None:
+            device = get_torch_device(self.model)
             inputs = self.processor(images=image, return_tensors="pt")
+            pixel_values = inputs["pixel_values"].to(device)
             with torch.no_grad():
-                logits = self.model(**inputs).logits
+                logits = self.model(pixel_values=pixel_values).logits
             self.class_id = int(logits.argmax(-1).item())
 
     def _predict_batch(self, batch: np.ndarray) -> np.ndarray:
         import torch
 
+        device = get_torch_device(self.model)
         inputs = self.processor(images=[np.asarray(img) for img in batch], return_tensors="pt")
+        pixel_values = inputs["pixel_values"].to(device)
         with torch.no_grad():
-            logits = self.model(**inputs).logits
+            logits = self.model(pixel_values=pixel_values).logits
             probs = torch.softmax(logits, dim=-1)
-        return probs[:, self.class_id].cpu().numpy()
+        return tensor_to_numpy(probs[:, self.class_id])
 
     def value_function(self, image: np.ndarray, coalitions: np.ndarray) -> np.ndarray:
         """Apply pixel masking and return class probabilities for each coalition."""
@@ -339,9 +348,11 @@ class DINOv2Architecture(ModelArchitectureStrategy):
     def _embed(self, batch: np.ndarray) -> torch.Tensor:
         import torch
 
+        device = get_torch_device(self.model)
         inputs = self.processor(images=[np.asarray(img) for img in batch], return_tensors="pt")
+        pixel_values = inputs["pixel_values"].to(device)
         with torch.no_grad():
-            out = self.model(**inputs)
+            out = self.model(pixel_values=pixel_values)
         if hasattr(out, "pooler_output") and out.pooler_output is not None:
             emb = out.pooler_output
         elif hasattr(out, "last_hidden_state"):
@@ -360,7 +371,7 @@ class DINOv2Architecture(ModelArchitectureStrategy):
         masked = self._masking_strategy.apply(image, self._player_masks, coalitions)
         emb = self._embed(masked)
         sims = emb @ self._reference_embedding
-        return sims.cpu().numpy()
+        return tensor_to_numpy(sims)
 
     def calc_empty_prediction(self, image: np.ndarray) -> float:
         """Return the model prediction for the empty coalition."""
@@ -424,7 +435,9 @@ class CLIPArchitecture(ModelArchitectureStrategy):
         import torch
 
         self._player_masks = player_strategy.get_masks(image)
+        device = get_torch_device(self.model)
         text_inputs = self.processor(text=self.text_prompts, return_tensors="pt", padding=True)
+        text_inputs = {key: value.to(device) for key, value in text_inputs.items()}
         with torch.no_grad():
             tf = _extract_hf_features(self.model.get_text_features(**text_inputs))
             self._text_features = torch.nn.functional.normalize(tf, dim=-1)
@@ -434,17 +447,17 @@ class CLIPArchitecture(ModelArchitectureStrategy):
         import torch
 
         masked = self._masking_strategy.apply(image, self._player_masks, coalitions)
+        device = get_torch_device(self.model)
         image_inputs = self.processor(
             images=[np.asarray(img) for img in masked], return_tensors="pt"
         )
+        pixel_values = image_inputs["pixel_values"].to(device)
         with torch.no_grad():
-            f = _extract_hf_features(
-                self.model.get_image_features(pixel_values=image_inputs["pixel_values"])
-            )
+            f = _extract_hf_features(self.model.get_image_features(pixel_values=pixel_values))
             f = torch.nn.functional.normalize(f, dim=-1)
             logits = self.model.logit_scale.exp() * f @ self._text_features.T
             probs = torch.softmax(logits, dim=-1)
-        return probs[:, self.target_prompt_idx].cpu().numpy()
+        return tensor_to_numpy(probs[:, self.target_prompt_idx])
 
     def calc_empty_prediction(self, image: np.ndarray) -> float:
         """Return the model prediction for the empty coalition."""
@@ -509,8 +522,10 @@ class CustomViTArchitecture(ModelArchitectureStrategy):
         """Return the default bool-masked-pos masking strategy."""
         return BoolMaskedPosStrategy()
 
-    def prepare(self, image: np.ndarray, player_strategy: LatentPlayerStrategy) -> None:
-        """Cache the player strategy reference (pixel values are pre-supplied at construction)."""
+    def prepare(self, _image: np.ndarray, player_strategy: LatentPlayerStrategy) -> None:
+        """Cache the player strategy reference and align pixel values with the model device."""
+        device = get_torch_device(self.model)
+        self._pixel_values = self._pixel_values.to(device)
         self._player_strategy_ref = player_strategy
 
     def value_function(self, _image: np.ndarray, coalitions: np.ndarray) -> np.ndarray:
@@ -519,13 +534,16 @@ class CustomViTArchitecture(ModelArchitectureStrategy):
 
         if coalitions.ndim == 1:
             coalitions = coalitions.reshape(1, -1)
-        bool_masks = torch.stack([self._player_strategy_ref.get_latent_mask(c) for c in coalitions])
+        device = self._pixel_values.device
+        bool_masks = torch.stack(
+            [self._player_strategy_ref.get_latent_mask(c) for c in coalitions]
+        ).to(device)
         with torch.no_grad():
             logits = self._masking_strategy.predict_logits(
                 self.model, self._pixel_values, bool_masks
             )
             probs = torch.softmax(logits, dim=-1)
-        return probs[:, self.class_id].cpu().numpy()
+        return tensor_to_numpy(probs[:, self.class_id])
 
     def calc_empty_prediction(self, image: np.ndarray) -> float:
         """Return the model prediction for the empty coalition."""
