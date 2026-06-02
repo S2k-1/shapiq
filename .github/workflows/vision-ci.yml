@@ -1,0 +1,37 @@
+# Lint, format, and test the shapiq.vision package via src/shapiq/vision/Makefile.
+name: Vision Package CI
+
+on:
+    pull_request:
+        branches: [main]
+        paths:
+            - ".github/workflows/vision-ci.yml"
+            - "src/shapiq/vision/**"
+            - "tests/shapiq/tests_unit/tests_vision/**"
+    push:
+        branches: [main]
+        paths:
+            - ".github/workflows/vision-ci.yml"
+            - "src/shapiq/vision/**"
+            - "tests/shapiq/tests_unit/tests_vision/**"
+    workflow_dispatch:
+
+concurrency:
+    group: vision-ci-${{ github.event.pull_request.number || github.ref }}
+    cancel-in-progress: true
+
+jobs:
+    check:
+        name: make check
+        runs-on: ubuntu-latest
+        steps:
+            -   uses: actions/checkout@v6
+            -   name: Set up Python and uv
+                uses: astral-sh/setup-uv@v7
+                with:
+                    python-version: "3.12"
+                    enable-cache: true
+            -   name: Install dependencies
+                run: uv sync
+            -   name: Run vision checks
+                run: make -C src/shapiq/vision check
