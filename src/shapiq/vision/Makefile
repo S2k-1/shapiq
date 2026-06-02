@@ -3,37 +3,46 @@
 # Usage (from anywhere):
 #   make -C src/shapiq/vision check
 #   make -C src/shapiq/vision test
+#
+# Code quality uses the same pre-commit hooks as .github/workflows/ci.yml,
+# scoped to vision library code, tests, and this Makefile.
+# The ty hook is omitted here because it ignores --files and checks all of
+# src/shapiq; run `uv run pre-commit run ty --all-files` for a full-repo check.
 
 ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))/../../..)
 VISION_SRC := src/shapiq/vision
 VISION_TESTS := tests/shapiq/tests_unit/tests_vision
-VISION_PY := $(wildcard $(ROOT)/$(VISION_SRC)/*.py)
-RUFF_PATHS := $(VISION_PY) $(ROOT)/$(VISION_TESTS)
+VISION_QUALITY_FILES := $(shell git -C $(ROOT) ls-files \
+	$(VISION_SRC)/*.py \
+	$(VISION_SRC)/Makefile \
+	$(VISION_TESTS)/)
+# Pre-commit hooks that honor --files (mirrors .pre-commit-config.yaml minus ty).
+PRE_COMMIT_SKIP_TY := SKIP=ty
 PYTEST := uv run pytest
-RUFF := uv run ruff
+PRE_COMMIT := uv run pre-commit
 
-.PHONY: help check lint format fix test test-cov
+.PHONY: help check quality fix test test-cov typecheck
 
 help:
 	@echo "Vision package targets:"
-	@echo "  check     Run lint, format check, and tests"
-	@echo "  lint      Run ruff linter on vision *.py and tests"
-	@echo "  format    Check ruff formatting (no writes)"
-	@echo "  fix       Auto-fix lint and format issues"
-	@echo "  test      Run all vision unit tests"
-	@echo "  test-cov  Run vision tests with coverage for shapiq.vision"
+	@echo "  check      Run pre-commit (vision code/tests) and unit tests"
+	@echo "  quality    Run pre-commit hooks on tracked vision files"
+	@echo "  fix        Run pre-commit hooks and apply auto-fixes"
+	@echo "  typecheck  Run ty on the full repo (same hook as main CI)"
+	@echo "  test       Run all vision unit tests"
+	@echo "  test-cov   Run vision tests with coverage for shapiq.vision"
 
-check: lint format test
+check: quality test
 
-lint:
-	cd $(ROOT) && $(RUFF) check $(RUFF_PATHS)
-
-format:
-	cd $(ROOT) && $(RUFF) format --check $(RUFF_PATHS)
+quality:
+	cd $(ROOT) && $(PRE_COMMIT_SKIP_TY) $(PRE_COMMIT) run \
+		--files $(VISION_QUALITY_FILES) --show-diff-on-failure
 
 fix:
-	cd $(ROOT) && $(RUFF) check --fix $(RUFF_PATHS)
-	cd $(ROOT) && $(RUFF) format $(RUFF_PATHS)
+	cd $(ROOT) && $(PRE_COMMIT_SKIP_TY) $(PRE_COMMIT) run --files $(VISION_QUALITY_FILES)
+
+typecheck:
+	cd $(ROOT) && $(PRE_COMMIT) run ty --all-files
 
 test:
 	cd $(ROOT) && $(PYTEST) $(VISION_TESTS)

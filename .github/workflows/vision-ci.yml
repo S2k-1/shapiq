@@ -32,6 +32,10 @@ jobs:
                     python-version: "3.12"
                     enable-cache: true
             -   name: Install dependencies
-                run: uv sync
-            -   name: Run vision checks
-                run: make -C src/shapiq/vision check
+                run: |
+                    uv sync
+                    uv run pre-commit install
+            -   name: Run vision code quality
+                run: make -C src/shapiq/vision quality
+            -   name: Run vision tests
+                run: make -C src/shapiq/vision test
