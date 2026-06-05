@@ -87,7 +87,7 @@ class TransformerArchitecture(ModelArchitectureStrategy):
 
     def default_masking_strategy(self) -> MaskTokenStrategy:
         # ViTForImageClassification has mask_token=None by default; MaskTokenStrategy initialises it
-        return MaskTokenStrategy()
+        return MaskTokenStrategy(self.model)
 
     def prepare(self, image: np.ndarray) -> None:
         inputs = self.processor(images=image, return_tensors="pt")
@@ -117,6 +117,8 @@ class TransformerArchitecture(ModelArchitectureStrategy):
         player_token_indices = self._player_strategy.get_token_masks()
         
         with torch.no_grad():
-            logits = self._masking_strategy.predict_logits(self.model, self._pixel_values, coalitions, player_token_indices)
+            token_mask = self._masking_strategy.apply(coalitions, player_token_indices)
+            batch = self._pixel_values.repeat(token_mask.shape[0], 1, 1, 1)
+            logits = self.model(pixel_values=batch, bool_masked_pos=token_mask).logits
             probs = torch.softmax(logits, dim=-1)
         return probs[:, self._class_id].cpu().numpy()

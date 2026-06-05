@@ -60,13 +60,11 @@ class TransformerMaskingStrategy(ABC):
     """Defines how tokens are masked in latent/embedding space."""
 
     @abstractmethod
-    def predict_logits(
+    def apply(
         self,
-        model,
-        pixel_values: torch.Tensor,  # (1, 3, H, W)
-        coalitions: np.ndarray, 
-        token_masks: np.ndarray 
-    ) -> torch.Tensor:               # (B, n_classes)
+        coalitions: np.ndarray,
+        token_masks: np.ndarray,
+    ) -> torch.Tensor:               # (B, n_coalitions)
         ...
         
     def _to_token_mask(
@@ -74,7 +72,7 @@ class TransformerMaskingStrategy(ABC):
         coalitions: np.ndarray,   # (n_coalitions, n_players)
         token_masks: np.ndarray, # (n_players, tokens_per_player)
     ) -> torch.Tensor:             # (n_coalitions, n_tokens)
-        """Converts coalitions to bool_masked_pos.
+        """Converts coalitions to token_mask.
         
         True  = token is masked (player absent)
         False = token is visible (player present)
@@ -83,31 +81,31 @@ class TransformerMaskingStrategy(ABC):
         n_tokens = int(token_masks.max()) + 1 # e.g. 196 for 14x14
         
         # start fully masked, unmask present players
-        bool_masked_pos = torch.ones((n_coalitions, n_tokens), dtype=torch.bool)
+        token_mask = torch.ones((n_coalitions, n_tokens), dtype=torch.bool)
         for i, coalition in enumerate(coalitions):
             for player, is_present in enumerate(coalition):
                 if is_present:
-                    bool_masked_pos[i, token_masks[player]] = False
+                    token_mask[i, token_masks[player]] = False
         
-        return bool_masked_pos
+        return token_mask
 
 
 class BoolMaskedPosStrategy(TransformerMaskingStrategy):
-    """Masks tokens via the bool_masked_pos argument in the model forward pass."""
+    """Masks tokens via the token_mask argument in the model forward pass."""
 
-    def predict_logits(self, model, pixel_values, coalitions: np.ndarray, token_masks: np.ndarray):
-        bool_masked_pos = self._to_token_mask(coalitions, token_masks)
-        batch = pixel_values.repeat(bool_masked_pos.shape[0], 1, 1, 1)
-        return model(pixel_values=batch, bool_masked_pos=bool_masked_pos).logits
+    def apply(self, coalitions: np.ndarray, token_masks: np.ndarray) -> torch.Tensor:
+        return self._to_token_mask(coalitions, token_masks)
 
 
 class MaskTokenStrategy(TransformerMaskingStrategy):
     """Masks tokens by zeroing the mask_token embedding before the forward pass."""
 
-    def predict_logits(self, model, pixel_values, coalitions: np.ndarray, token_masks: np.ndarray):
-        bool_masked_pos = self._to_token_mask(coalitions, token_masks)
-        model.vit.embeddings.mask_token = torch.nn.Parameter(
-            torch.zeros(1, 1, model.config.hidden_size)
+    def __init__(self, model) -> None:
+        self._model = model
+
+    def apply(self, coalitions: np.ndarray, token_masks: np.ndarray) -> torch.Tensor:
+        token_mask = self._to_token_mask(coalitions, token_masks)
+        self._model.vit.embeddings.mask_token = torch.nn.Parameter(
+            torch.zeros(1, 1, self._model.config.hidden_size)
         )
-        batch = pixel_values.repeat(bool_masked_pos.shape[0], 1, 1, 1)
-        return model(pixel_values=batch, bool_masked_pos=bool_masked_pos).logits
+        return token_mask
