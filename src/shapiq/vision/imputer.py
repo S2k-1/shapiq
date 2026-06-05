@@ -2,9 +2,9 @@ import numpy as np
 
 from shapiq.imputer.base import Imputer
 
-from .architecture import ModelArchitectureStrategy, ResNetArchitecture, ViTArchitecture
+from .architecture import ModelArchitectureStrategy, CNNArchitecture, TransformerArchitecture
 from .players import PlayerStrategy
-from .masking import PixelMaskingStrategy, LatentMaskingStrategy
+from .masking import CNNMaskingStrategy, TransformerMaskingStrategy
 
 from .utils import is_valid_image_shape
 
@@ -18,7 +18,7 @@ class ImageImputer(Imputer):
         model,
         image: np.ndarray,
         player_strategy: PlayerStrategy | None = None,
-        masking_strategy: PixelMaskingStrategy | LatentMaskingStrategy | None = None,
+        masking_strategy: CNNMaskingStrategy | TransformerMaskingStrategy | None = None,
         normalize: bool = True,
         model_architecture: ModelArchitectureStrategy | None = None,
         vit_processor=None,
@@ -77,12 +77,12 @@ class ImageImputer(Imputer):
         
         import torchvision.models as models
         if isinstance(model, models.ResNet):
-            return ResNetArchitecture(model, masking_strategy, player_strategy)
+            return CNNArchitecture(model, masking_strategy, player_strategy)
         
         from transformers import ViTForImageClassification
         if isinstance(model, ViTForImageClassification):
             if vit_processor is None:
                 raise ValueError("Please provide a processor for ViT models.")
-            return ViTArchitecture(model, vit_processor, masking_strategy, player_strategy)
+            return TransformerArchitecture(model, vit_processor, masking_strategy, player_strategy)
         
         raise ValueError(f"Could not auto-detect architecture for model type '{type(model)}'.")

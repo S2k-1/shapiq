@@ -12,7 +12,7 @@ class PlayerStrategy(ABC):
     def n_players(self) -> int: ...
 
 
-class PixelPlayerStrategy(PlayerStrategy, ABC):
+class CNNPlayerStrategy(PlayerStrategy, ABC):
     """Player strategy that returns spatial masks in pixel space."""
 
     @abstractmethod
@@ -21,7 +21,7 @@ class PixelPlayerStrategy(PlayerStrategy, ABC):
         ...
 
 
-class LatentPlayerStrategy(PlayerStrategy, ABC):
+class TransformerPlayerStrategy(PlayerStrategy, ABC):
     """Player strategy that returns a 1D boolean mask in latent/token space."""
 
     @abstractmethod
@@ -30,7 +30,7 @@ class LatentPlayerStrategy(PlayerStrategy, ABC):
         ...
 
 
-class PatchStrategy(LatentPlayerStrategy):
+class PatchStrategy(TransformerPlayerStrategy):
     """Splits the image into patches for ViT models."""
 
     def __init__(self, grid_size: int, n_players: int):
@@ -59,7 +59,7 @@ class PatchStrategy(LatentPlayerStrategy):
         return self._n_players
 
 
-class SuperpixelStrategy(PixelPlayerStrategy):
+class SuperpixelStrategy(CNNPlayerStrategy):
     """Splits the image into superpixels using SLIC or a custom mask."""
 
     def __init__(

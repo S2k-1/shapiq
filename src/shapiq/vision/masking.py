@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 import numpy as np
 import torch
 
-class PixelMaskingStrategy(ABC):
+class CNNMaskingStrategy(ABC):
     @abstractmethod
     def apply(self, image: np.ndarray, player_masks: np.ndarray, coalition: np.ndarray) -> np.ndarray:
         """
@@ -17,7 +17,7 @@ class PixelMaskingStrategy(ABC):
         ...
 
 
-class MeanColorMasking(PixelMaskingStrategy):
+class MeanColorMasking(CNNMaskingStrategy):
     """Imputes the masked pixels with the mean color of the entire image."""
     
     def apply(self, image: np.ndarray, player_masks: np.ndarray, coalition: np.ndarray) -> np.ndarray:
@@ -36,7 +36,7 @@ class MeanColorMasking(PixelMaskingStrategy):
         return masked_images
 
 
-class ZeroMasking(PixelMaskingStrategy):
+class ZeroMasking(CNNMaskingStrategy):
     def __init__(self, value: float = 0.0):
         self.value = value
     
@@ -56,7 +56,7 @@ class ZeroMasking(PixelMaskingStrategy):
         return masked_images
 
 
-class LatentMaskingStrategy(ABC):
+class TransformerMaskingStrategy(ABC):
     """Defines how tokens are masked in latent/embedding space."""
 
     @abstractmethod
@@ -69,7 +69,7 @@ class LatentMaskingStrategy(ABC):
         ...
 
 
-class BoolMaskedPosStrategy(LatentMaskingStrategy):
+class BoolMaskedPosStrategy(TransformerMaskingStrategy):
     """Masks tokens via the bool_masked_pos argument in the model forward pass."""
 
     def predict_logits(self, model, pixel_values, bool_masks):
@@ -77,7 +77,7 @@ class BoolMaskedPosStrategy(LatentMaskingStrategy):
         return model(pixel_values=batch, bool_masked_pos=bool_masks).logits
 
 
-class MaskTokenStrategy(LatentMaskingStrategy):
+class MaskTokenStrategy(TransformerMaskingStrategy):
     """Masks tokens by zeroing the mask_token embedding before the forward pass."""
 
     def predict_logits(self, model, pixel_values, bool_masks):

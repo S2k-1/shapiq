@@ -11,7 +11,7 @@ from shapiq.typing import Model
 
 from .imputer import ImageImputer
 from .players import PlayerStrategy
-from .masking import PixelMaskingStrategy, LatentMaskingStrategy
+from .masking import CNNMaskingStrategy, TransformerMaskingStrategy
 from .architecture import ModelArchitectureStrategy
 
 ImageExplainerIndices = ExplainerIndices
@@ -26,7 +26,7 @@ class ImageExplainer(Explainer):
         data: np.ndarray,
         *,
         player_strategy: PlayerStrategy | None = None,
-        masking_strategy: PixelMaskingStrategy | LatentMaskingStrategy | None = None,
+        masking_strategy: CNNMaskingStrategy | TransformerMaskingStrategy | None = None,
         imputer: ImageImputer | None = None,
         index: ExplainerIndices = "k-SII",
         max_order: int = 2,

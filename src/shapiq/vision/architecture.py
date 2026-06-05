@@ -4,8 +4,8 @@ import numpy as np
 import torch
 from torchvision import transforms
 
-from .masking import LatentMaskingStrategy, MaskTokenStrategy, MeanColorMasking, PixelMaskingStrategy
-from .players import LatentPlayerStrategy, PatchStrategy, PixelPlayerStrategy, PlayerStrategy, SuperpixelStrategy
+from .masking import TransformerMaskingStrategy, MaskTokenStrategy, MeanColorMasking, CNNMaskingStrategy
+from .players import TransformerPlayerStrategy, PatchStrategy, CNNPlayerStrategy, PlayerStrategy, SuperpixelStrategy
 
 
 class ModelArchitectureStrategy(ABC):
@@ -28,10 +28,10 @@ class ModelArchitectureStrategy(ABC):
         ...
 
 
-class ResNetArchitecture(ModelArchitectureStrategy):
+class CNNArchitecture(ModelArchitectureStrategy):
     """Architecture strategy for CNN models (e.g. ResNet) using pixel-space masking."""
 
-    def __init__(self, model, masking_strategy: PixelMaskingStrategy | None = None, player_strategy: PixelPlayerStrategy | None = None):
+    def __init__(self, model, masking_strategy: CNNMaskingStrategy | None = None, player_strategy: CNNPlayerStrategy | None = None):
         self.model = model
         self._masking_strategy = masking_strategy or self.default_masking_strategy()
         self._player_strategy = player_strategy or self.default_player_strategy()
@@ -70,10 +70,10 @@ class ResNetArchitecture(ModelArchitectureStrategy):
         return logits[:, self._class_id].numpy()
 
 
-class ViTArchitecture(ModelArchitectureStrategy):
+class TransformerArchitecture(ModelArchitectureStrategy):
     """Architecture strategy for Vision Transformer models using latent-space masking."""
 
-    def __init__(self, model, vit_processor, masking_strategy: LatentMaskingStrategy | None = None, player_strategy: LatentPlayerStrategy | None = None):
+    def __init__(self, model, vit_processor, masking_strategy: TransformerMaskingStrategy | None = None, player_strategy: TransformerPlayerStrategy | None = None):
         self.model = model
         self.processor = vit_processor
         self._masking_strategy = masking_strategy or self.default_masking_strategy()
