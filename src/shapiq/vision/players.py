@@ -25,13 +25,18 @@ class TransformerPlayerStrategy(PlayerStrategy, ABC):
     """Player strategy that returns a 1D boolean mask in latent/token space."""
 
     @abstractmethod
-    def get_latent_mask(self, coalition: np.ndarray) -> torch.Tensor:
+    def get_token_masks(self) -> torch.Tensor:
         # returns (n_tokens,) bool
         ...
 
 
 class PatchStrategy(TransformerPlayerStrategy):
-    """Splits the image into patches for ViT models."""
+    """Splits the image into patches for ViT models.
+    
+    Each player corresponds to a group of tokens in the latent space.
+    Token indices are precomputed in the constructor and can be used
+    by masking strategies to build bool_masked_pos tensors.
+    """
 
     def __init__(self, grid_size: int, n_players: int):
         side = int(math.sqrt(n_players))
@@ -43,17 +48,37 @@ class PatchStrategy(TransformerPlayerStrategy):
         self.patch_size = grid_size // side
         self.side = side
         self._n_players = n_players
+        self._token_masks = self._compute_token_masks()
 
-    def get_latent_mask(self, coalition: np.ndarray) -> torch.Tensor:
-        # True = masked, False = visible; shape (grid_size * grid_size,)
-        mask_2d = torch.ones((self.grid_size, self.grid_size), dtype=torch.bool)
-        for player, is_present in enumerate(coalition):
-            if is_present:
-                y = (player // self.side) * self.patch_size
-                x = (player % self.side) * self.patch_size
-                mask_2d[y : y + self.patch_size, x : x + self.patch_size] = False
-        return mask_2d.flatten()
-    
+    def _compute_token_masks(self) -> np.ndarray:
+        """Precompute token masks for each player consisting of the token indices corresponding to that player's patch.
+        
+        Returns:
+            (n_players, tokens_per_player) integer array where
+            token_masks[i] contains the flat token indices belonging to player i.
+        """
+        tokens_per_player = self.patch_size * self.patch_size
+        indices = np.zeros((self._n_players, tokens_per_player), dtype=int)
+        
+        for player in range(self._n_players):
+            y_start = (player // self.side) * self.patch_size
+            x_start = (player % self.side) * self.patch_size
+            token_idx = 0
+            for y in range(y_start, y_start + self.patch_size):
+                for x in range(x_start, x_start + self.patch_size):
+                    indices[player, token_idx] = y * self.grid_size + x
+                    token_idx += 1
+        
+        return indices
+
+    def get_token_masks(self) -> np.ndarray:
+        """Returns token indices per player.
+        
+        Returns:
+            (n_players, tokens_per_player) integer array.
+        """
+        return self._token_masks
+
     @property
     def n_players(self) -> int:
         return self._n_players

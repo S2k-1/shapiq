@@ -114,10 +114,9 @@ class TransformerArchitecture(ModelArchitectureStrategy):
         return masks
 
     def value_function(self, coalitions: np.ndarray) -> np.ndarray:
-        bool_masks = torch.stack(
-            [self._player_strategy.get_latent_mask(c) for c in coalitions]
-        )
+        player_token_indices = self._player_strategy.get_token_masks()
+        
         with torch.no_grad():
-            logits = self._masking_strategy.predict_logits(self.model, self._pixel_values, bool_masks)
+            logits = self._masking_strategy.predict_logits(self.model, self._pixel_values, coalitions, player_token_indices)
             probs = torch.softmax(logits, dim=-1)
         return probs[:, self._class_id].cpu().numpy()
