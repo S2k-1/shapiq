@@ -29,6 +29,11 @@ class ModelArchitectureStrategy(ABC):
     def value_function(self, coalitions: np.ndarray) -> np.ndarray:
         """Return model predictions for each coalition. Returns (n_coalitions,)."""
         ...
+        
+    @property
+    def player_masks(self) -> np.ndarray:
+        """(n_players, H, W) boolean array of pixel masks for visualization."""
+        ...
 
 
 class CNNArchitecture(ModelArchitectureStrategy):
@@ -74,6 +79,10 @@ class CNNArchitecture(ModelArchitectureStrategy):
         with torch.no_grad():
             logits = self.model(input_tensors)
         return logits[:, self._class_id].numpy()
+    
+    @property
+    def player_masks(self) -> np.ndarray:
+        return self._player_masks
 
 
 class TransformerArchitecture(ModelArchitectureStrategy):
@@ -85,6 +94,7 @@ class TransformerArchitecture(ModelArchitectureStrategy):
         self._masking_strategy = masking_strategy or self.default_masking_strategy()
         self._player_strategy = player_strategy or self.default_player_strategy()
         self._pixel_values: torch.Tensor | None = None
+        self._token_masks: np.ndarray | None = None
         self._class_id: int | None = None
 
     def default_player_strategy(self) -> PatchStrategy:
@@ -102,23 +112,8 @@ class TransformerArchitecture(ModelArchitectureStrategy):
         with torch.no_grad():
             logits = self.model(pixel_values=self._pixel_values).logits
         self._class_id = int(logits.argmax(-1).item())
-        self._player_masks = self._build_pixel_masks(image)
-
-    def _build_pixel_masks(self, image: np.ndarray) -> np.ndarray:
-        """Rectangular grid masks of shape (n_players, H, W) for pixel-space visualization."""
-        n = self._player_strategy.n_players
-        H, W = image.shape[:2]
-        side = self._player_strategy.side
-        bh, bw = H // side, W // side
-        masks = np.zeros((n, H, W), dtype=bool)
-        for p in range(n):
-            r, c = divmod(p, side)
-            masks[
-                p,
-                r * bh : (H if r == side - 1 else (r + 1) * bh),
-                c * bw : (W if c == side - 1 else (c + 1) * bw),
-            ] = True
-        return masks
+        self._player_masks = self._player_strategy.get_pixel_masks(image)
+        self._token_masks = self._player_strategy.get_token_masks()
 
     def value_function(self, coalitions: np.ndarray) -> np.ndarray:
         import torch
@@ -130,3 +125,7 @@ class TransformerArchitecture(ModelArchitectureStrategy):
             logits = self.model(pixel_values=batch, bool_masked_pos=token_mask).logits
             probs = torch.softmax(logits, dim=-1)
         return probs[:, self._class_id].cpu().numpy()
+    
+    @property
+    def player_masks(self) -> np.ndarray:
+        return self._player_masks

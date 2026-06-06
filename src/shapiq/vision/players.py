@@ -82,6 +82,26 @@ class PatchStrategy(TransformerPlayerStrategy):
             (n_players, tokens_per_player) integer array.
         """
         return self._token_masks
+    
+    def get_pixel_masks(self, image: np.ndarray) -> np.ndarray:
+        """Build rectangular pixel-space masks for visualization.
+
+        Returns a boolean array of shape (n_players, H, W) where each player
+        corresponds to a rectangular patch of the image.
+        """
+        n = self._n_players
+        H, W = image.shape[:2]
+        side = self.side
+        bh, bw = H // side, W // side
+        masks = np.zeros((n, H, W), dtype=bool)
+        for p in range(n):
+            r, c = divmod(p, side)
+            masks[
+                p,
+                r * bh : (H if r == side - 1 else (r + 1) * bh),
+                c * bw : (W if c == side - 1 else (c + 1) * bw),
+            ] = True
+        return masks
 
     @property
     def n_players(self) -> int:

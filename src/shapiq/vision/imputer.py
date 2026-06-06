@@ -70,9 +70,9 @@ class ImageImputer(Imputer):
         return float(self.architecture.value_function(np.zeros((1, self.n_features), dtype=bool))[0])
 
     @property
-    def player_masks(self) -> np.ndarray | None:
-        """Spatial masks per player, shape (n_players, H, W). None for latent-space architectures."""
-        return getattr(self.architecture, "_player_masks", None)
+    def player_masks(self) -> np.ndarray:
+        """Spatial masks per player, shape (n_players, H, W)."""
+        return self.architecture.player_masks
     
     def _predict_model_architecture(self, model, masking_strategy=None, player_strategy=None, vit_processor=None) -> ModelArchitectureStrategy:
         """Auto-detects the model architecture and returns the appropriate ModelArchitectureStrategy."""
