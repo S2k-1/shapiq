@@ -1,6 +1,12 @@
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 import numpy as np
-import torch
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import torch
 
 class CNNMaskingStrategy(ABC):
     @abstractmethod
@@ -77,10 +83,11 @@ class TransformerMaskingStrategy(ABC):
         True  = token is masked (player absent)
         False = token is visible (player present)
         """
-        n_coalitions = coalitions.shape[0]
-        n_tokens = int(token_masks.max()) + 1 # e.g. 196 for 14x14
+        import torch
         
-        # start fully masked, unmask present players
+        n_coalitions = coalitions.shape[0]
+        n_tokens = int(token_masks.max()) + 1
+        
         token_mask = torch.ones((n_coalitions, n_tokens), dtype=torch.bool)
         for i, coalition in enumerate(coalitions):
             for player, is_present in enumerate(coalition):
@@ -104,6 +111,8 @@ class MaskTokenStrategy(TransformerMaskingStrategy):
         self._model = model
 
     def apply(self, coalitions: np.ndarray, token_masks: np.ndarray) -> torch.Tensor:
+        import torch
+        
         token_mask = self._to_token_mask(coalitions, token_masks)
         self._model.vit.embeddings.mask_token = torch.nn.Parameter(
             torch.zeros(1, 1, self._model.config.hidden_size)

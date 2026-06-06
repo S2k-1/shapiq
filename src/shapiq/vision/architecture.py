@@ -1,11 +1,14 @@
-from abc import ABC, abstractmethod
+from __future__ import annotations
 
+from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING
 import numpy as np
-import torch
-from torchvision import transforms
 
 from .masking import TransformerMaskingStrategy, MaskTokenStrategy, MeanColorMasking, CNNMaskingStrategy
 from .players import TransformerPlayerStrategy, PatchStrategy, CNNPlayerStrategy, PlayerStrategy, SuperpixelStrategy
+
+if TYPE_CHECKING:
+    import torch
 
 
 class ModelArchitectureStrategy(ABC):
@@ -46,6 +49,7 @@ class CNNArchitecture(ModelArchitectureStrategy):
         return MeanColorMasking()
     
     def _preprocess_image(self, image: np.ndarray) -> torch.tensor:
+        from torchvision import transforms
         # Convert (H, W, C) to (C, H, W)
         transform = transforms.Compose([
             transforms.ToTensor()
@@ -53,6 +57,7 @@ class CNNArchitecture(ModelArchitectureStrategy):
         return transform(image)
 
     def prepare(self, image: np.ndarray) -> None:
+        import torch
         self._player_masks = self._player_strategy.get_masks(image)
         self._image_array = image
         
@@ -62,6 +67,7 @@ class CNNArchitecture(ModelArchitectureStrategy):
             self._class_id = int(logits.argmax(dim=1).item())
 
     def value_function(self, coalitions: np.ndarray) -> np.ndarray:
+        import torch
         masked = self._masking_strategy.apply(self._image_array, self._player_masks, coalitions)
         input_tensors = torch.stack([self._preprocess_image(img) for img in masked])
         
@@ -90,6 +96,7 @@ class TransformerArchitecture(ModelArchitectureStrategy):
         return MaskTokenStrategy(self.model)
 
     def prepare(self, image: np.ndarray) -> None:
+        import torch
         inputs = self.processor(images=image, return_tensors="pt")
         self._pixel_values = inputs["pixel_values"]
         with torch.no_grad():
@@ -114,6 +121,7 @@ class TransformerArchitecture(ModelArchitectureStrategy):
         return masks
 
     def value_function(self, coalitions: np.ndarray) -> np.ndarray:
+        import torch
         player_token_indices = self._player_strategy.get_token_masks()
         
         with torch.no_grad():

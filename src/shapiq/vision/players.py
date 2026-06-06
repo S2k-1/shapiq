@@ -1,8 +1,12 @@
-import torch
+from __future__ import annotations
+
 import math
 import numpy as np
-from typing import Optional, Literal
+from typing import Optional, Literal, TYPE_CHECKING
 from abc import ABC, abstractmethod
+
+if TYPE_CHECKING:
+    import torch
 
 class PlayerStrategy(ABC):
     """Defines how the image is split into n_players regions."""
