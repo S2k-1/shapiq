@@ -23,90 +23,7 @@ class CNNPlayerStrategy(PlayerStrategy, ABC):
     def get_masks(self, image: np.ndarray) -> np.ndarray:
         # returns (n_players, H, W)
         ...
-
-
-class TransformerPlayerStrategy(PlayerStrategy, ABC):
-    """Player strategy that returns a 1D boolean mask in latent/token space."""
-
-    @abstractmethod
-    def get_token_masks(self) -> torch.Tensor:
-        # returns (n_tokens,) bool
-        ...
-
-
-class PatchStrategy(TransformerPlayerStrategy):
-    """Splits the image into patches for ViT models.
-    
-    Each player corresponds to a group of tokens in the latent space.
-    Token indices are precomputed in the constructor and can be used
-    by masking strategies to build bool_masked_pos tensors.
-    """
-
-    def __init__(self, grid_size: int, n_players: int):
-        side = int(math.sqrt(n_players))
-        if side * side != n_players:
-            raise ValueError("n_players must be a perfect square.")
-        if grid_size % side != 0:
-            raise ValueError("grid_size must be divisible by sqrt(n_players).")
-        self.grid_size = grid_size
-        self.patch_size = grid_size // side
-        self.side = side
-        self._n_players = n_players
-        self._token_masks = self._compute_token_masks()
-
-    def _compute_token_masks(self) -> np.ndarray:
-        """Precompute token masks for each player consisting of the token indices corresponding to that player's patch.
         
-        Returns:
-            (n_players, tokens_per_player) integer array where
-            token_masks[i] contains the flat token indices belonging to player i.
-        """
-        tokens_per_player = self.patch_size * self.patch_size
-        indices = np.zeros((self._n_players, tokens_per_player), dtype=int)
-        
-        for player in range(self._n_players):
-            y_start = (player // self.side) * self.patch_size
-            x_start = (player % self.side) * self.patch_size
-            token_idx = 0
-            for y in range(y_start, y_start + self.patch_size):
-                for x in range(x_start, x_start + self.patch_size):
-                    indices[player, token_idx] = y * self.grid_size + x
-                    token_idx += 1
-        
-        return indices
-
-    def get_token_masks(self) -> np.ndarray:
-        """Returns token indices per player.
-        
-        Returns:
-            (n_players, tokens_per_player) integer array.
-        """
-        return self._token_masks
-    
-    def get_pixel_masks(self, image: np.ndarray) -> np.ndarray:
-        """Build rectangular pixel-space masks for visualization.
-
-        Returns a boolean array of shape (n_players, H, W) where each player
-        corresponds to a rectangular patch of the image.
-        """
-        n = self._n_players
-        H, W = image.shape[:2]
-        side = self.side
-        bh, bw = H // side, W // side
-        masks = np.zeros((n, H, W), dtype=bool)
-        for p in range(n):
-            r, c = divmod(p, side)
-            masks[
-                p,
-                r * bh : (H if r == side - 1 else (r + 1) * bh),
-                c * bw : (W if c == side - 1 else (c + 1) * bw),
-            ] = True
-        return masks
-
-    @property
-    def n_players(self) -> int:
-        return self._n_players
-
 
 class SuperpixelStrategy(CNNPlayerStrategy):
     """Splits the image into superpixels using SLIC or a custom mask."""
@@ -246,3 +163,88 @@ class SuperpixelStrategy(CNNPlayerStrategy):
     @property
     def n_players(self) -> int:
         return self._n_players
+
+
+class TransformerPlayerStrategy(PlayerStrategy, ABC):
+    """Player strategy that returns a 1D boolean mask in latent/token space."""
+
+    @abstractmethod
+    def get_token_masks(self) -> torch.Tensor:
+        # returns (n_tokens,) bool
+        ...
+
+
+class PatchStrategy(TransformerPlayerStrategy):
+    """Splits the image into patches for ViT models.
+    
+    Each player corresponds to a group of tokens in the latent space.
+    Token indices are precomputed in the constructor and can be used
+    by masking strategies to build bool_masked_pos tensors.
+    """
+
+    def __init__(self, grid_size: int, n_players: int):
+        side = int(math.sqrt(n_players))
+        if side * side != n_players:
+            raise ValueError("n_players must be a perfect square.")
+        if grid_size % side != 0:
+            raise ValueError("grid_size must be divisible by sqrt(n_players).")
+        self.grid_size = grid_size
+        self.patch_size = grid_size // side
+        self.side = side
+        self._n_players = n_players
+        self._token_masks = self._compute_token_masks()
+
+    def _compute_token_masks(self) -> np.ndarray:
+        """Precompute token masks for each player consisting of the token indices corresponding to that player's patch.
+        
+        Returns:
+            (n_players, tokens_per_player) integer array where
+            token_masks[i] contains the flat token indices belonging to player i.
+        """
+        tokens_per_player = self.patch_size * self.patch_size
+        indices = np.zeros((self._n_players, tokens_per_player), dtype=int)
+        
+        for player in range(self._n_players):
+            y_start = (player // self.side) * self.patch_size
+            x_start = (player % self.side) * self.patch_size
+            token_idx = 0
+            for y in range(y_start, y_start + self.patch_size):
+                for x in range(x_start, x_start + self.patch_size):
+                    indices[player, token_idx] = y * self.grid_size + x
+                    token_idx += 1
+        
+        return indices
+
+    def get_token_masks(self) -> np.ndarray:
+        """Returns token indices per player.
+        
+        Returns:
+            (n_players, tokens_per_player) integer array.
+        """
+        return self._token_masks
+    
+    def get_pixel_masks(self, image: np.ndarray) -> np.ndarray:
+        """Build rectangular pixel-space masks for visualization.
+
+        Returns a boolean array of shape (n_players, H, W) where each player
+        corresponds to a rectangular patch of the image.
+        """
+        n = self._n_players
+        H, W = image.shape[:2]
+        side = self.side
+        bh, bw = H // side, W // side
+        masks = np.zeros((n, H, W), dtype=bool)
+        for p in range(n):
+            r, c = divmod(p, side)
+            masks[
+                p,
+                r * bh : (H if r == side - 1 else (r + 1) * bh),
+                c * bw : (W if c == side - 1 else (c + 1) * bw),
+            ] = True
+        return masks
+
+    @property
+    def n_players(self) -> int:
+        return self._n_players
+
+
