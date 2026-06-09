@@ -8,7 +8,7 @@ from .architecture import ModelArchitectureStrategy, CNNArchitecture, Transforme
 from .players import PlayerStrategy
 from .masking import CNNMaskingStrategy, TransformerMaskingStrategy
 
-from .utils import is_valid_image_shape
+from .utils import as_hwc_array, is_valid_image_shape, tensor_to_numpy
 
 
 class ImageImputer(Imputer):
@@ -25,7 +25,7 @@ class ImageImputer(Imputer):
         model_architecture: ModelArchitectureStrategy | None = None,
         vit_processor=None,
     ):
-
+        image = as_hwc_array(image)
         if not is_valid_image_shape(image):
             raise ValueError(
                 f"Expected image with shape (H, W, C), got {image.shape}."
@@ -47,31 +47,38 @@ class ImageImputer(Imputer):
 
     def value_function(self, coalitions: np.ndarray) -> np.ndarray:
         """
-        Calculates the value function for a batch of coalitions.
+        Evaluate the model for a batch of player coalitions.
         
         Args:
             coalitions: (n_coalitions, n_players) boolean array
             
         Returns:
-            (n_coalitions,) float array with model-Predictions
+            (n_coalitions,) float array with model-predictions for each coalition.
         
         """
+        import torch
         if coalitions.ndim == 1:
             coalitions = coalitions.reshape(1, -1)
-        return self.architecture.value_function(coalitions)
+        
+        coalitions_t = torch.from_numpy(coalitions).bool()
+        predictions = self.architecture.value_function(coalitions_t)
+        return tensor_to_numpy(predictions)
 
     def calc_empty_prediction(self) -> float:
-        """Runs the model on empty data points (all features missing) to get the empty prediction.
+        """Evaluate the model with all players absent to obtain the baseline prediction.
 
         Returns:
-            The empty prediction of the model provided only missing features.
-
+            The scalar model output when no players are present.
         """
-        return float(self.architecture.value_function(np.zeros((1, self.n_features), dtype=bool))[0])
+        return float(self.value_function(np.zeros((1, self.n_features), dtype=bool))[0])
 
     @property
     def player_masks(self) -> np.ndarray:
-        """Spatial masks per player, shape (n_players, H, W)."""
+        """Spatial masks per player as a ``(n_players, H, W)`` boolean numpy array.
+
+        Returns:
+            Boolean numpy array of shape ``(n_players, H, W)``.
+        """
         return self.architecture.player_masks
     
     def _predict_model_architecture(self, model, masking_strategy=None, player_strategy=None, vit_processor=None) -> ModelArchitectureStrategy:

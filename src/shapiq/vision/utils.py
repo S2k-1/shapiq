@@ -8,6 +8,8 @@ if TYPE_CHECKING:
     from PIL.Image import Image as PILImage
     
     ImageLike = np.ndarray | torch.Tensor | PILImage
+else:
+    ImageLike = np.ndarray
 
 
 def is_valid_image_shape(image: np.ndarray) -> bool:
