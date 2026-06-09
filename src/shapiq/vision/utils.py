@@ -1,9 +1,243 @@
 from __future__ import annotations
 
 import numpy as np
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import torch
+    from PIL.Image import Image as PILImage
+    
+    ImageLike = np.ndarray | torch.Tensor | PILImage
+
 
 def is_valid_image_shape(image: np.ndarray) -> bool:
-    """Checks if the input image has a valid shape (H, W, C) where C is 1, 3."""
+    """Check whether a numpy array has a valid ``(H, W, C)`` image shape.
+
+    Args:
+        image: Numpy array to validate.
+
+    Returns:
+        ``True`` if ``image`` has exactly three dimensions and the channel
+        dimension (axis 2) has size 1 or 3, ``False`` otherwise.
+    """
     if image.ndim != 3 or image.shape[2] not in (1, 3):
         return False
     return True
+
+
+def as_hwc_array(image: ImageLike) -> np.ndarray:
+    """Convert an image to a ``(H, W, C)`` numpy array.
+
+    Accepts numpy arrays (``(H, W, C)`` or ``(H, W)``), PIL images, and
+    PyTorch tensors (``(C, H, W)``, ``(H, W, C)``, or ``(1, C, H, W)``).
+    Other array-like objects are coerced with :func:`numpy.asarray` when
+    possible. PIL images are force-converted to RGB before conversion.
+
+    When both the first and last dimension of a 3-D tensor are in
+    ``{1, 3, 4}``, ``(C, H, W)`` layout is assumed.
+
+    Args:
+        image: Input image in a supported format.
+
+    Returns:
+        A numpy array with shape ``(H, W, C)``.
+
+    Raises:
+        TypeError: If the input type is not supported and cannot be coerced
+            with :func:`numpy.asarray`.
+        ValueError: If the resulting array does not have two or three
+            dimensions after conversion.
+    """
+    if isinstance(image, np.ndarray):
+        arr = np.asarray(image)
+    else:
+        pil_image = _try_convert_pil_image(image)
+        if pil_image is not None:
+            arr = pil_image
+        else:
+            tensor = _try_convert_torch_tensor(image)
+            if tensor is not None:
+                arr = tensor
+            else:
+                try:
+                    arr = np.asarray(image)
+                except (TypeError, ValueError) as exc:
+                    msg = (
+                        "image must be a numpy array, PIL Image, or PyTorch tensor; "
+                        f"got {type(image)!r}"
+                    )
+                    raise TypeError(msg) from exc
+
+    if arr.ndim == 0 or arr.dtype == object:
+        msg = f"image must be a numpy array, PIL Image, or PyTorch tensor; got {type(image)!r}"
+        raise TypeError(msg)
+
+    if arr.ndim == 2:
+        arr = arr[..., np.newaxis]
+
+    if arr.ndim == 4 and arr.shape[0] == 1:
+        arr = arr[0]
+        if (
+            arr.ndim == 3
+            and arr.shape[0] in (1, 3, 4)
+            and arr.shape[0] not in (arr.shape[1], arr.shape[2])
+        ) or (arr.ndim == 3 and arr.shape[0] in (1, 3, 4) and arr.shape[-1] not in (1, 3, 4)):
+            arr = np.transpose(arr, (1, 2, 0))
+
+    if arr.ndim != 3:
+        msg = f"Expected image with 2 or 3 dimensions after conversion, got shape {arr.shape}"
+        raise ValueError(msg)
+
+    return arr
+
+
+def to_tensor_chw(
+    image: ImageLike,
+    device: torch.device | str | None = None,
+) -> torch.Tensor:
+    """Convert an image to a float32 ``(C, H, W)`` PyTorch tensor.
+
+    First normalises the input to a ``(H, W, C)`` numpy array via
+    :func:`as_hwc_array`, then converts to a ``(C, H, W)`` float32 tensor.
+    uint8 arrays are scaled to ``[0, 1]``; arrays of any other numeric dtype
+    are cast to float32 without rescaling.
+
+    Args:
+        image: Input image as a numpy array, PIL image, or PyTorch tensor.
+        device: Target PyTorch device. If ``None`` the tensor is placed on
+            the CPU.
+
+    Returns:
+        A float32 :class:`torch.Tensor` with shape ``(C, H, W)`` on the
+        requested device.
+
+    Raises:
+        TypeError: If the input cannot be converted by :func:`as_hwc_array`.
+        ValueError: If the resulting array does not represent a valid image.
+    """
+    import torch
+
+    arr = as_hwc_array(image)  # (H, W, C) numpy
+    if arr.dtype == np.uint8:
+        arr = arr.astype(np.float32) / 255.0
+    else:
+        arr = arr.astype(np.float32)
+
+    tensor = torch.from_numpy(arr).permute(2, 0, 1)  # (C, H, W)
+
+    if device is not None:
+        tensor = tensor.to(device)
+
+    return tensor
+
+
+def get_torch_device(obj: object) -> torch.device:
+    """Return the :class:`torch.device` for a model, module, or tensor.
+
+    Inspects ``.parameters()`` first, then ``.buffers()``, to find the device
+    of the first available tensor. Falls back to CPU when no tensors are found.
+
+    Args:
+        obj: A :class:`torch.nn.Module`, :class:`torch.Tensor`, or any object
+            that exposes ``.parameters()`` or ``.buffers()``.
+
+    Returns:
+        The :class:`torch.device` on which the object (or its first parameter)
+        resides.
+
+    Raises:
+        ImportError: If PyTorch is not installed.
+    """
+    try:
+        import torch
+    except ImportError as exc:
+        msg = "PyTorch is required to resolve a torch device"
+        raise ImportError(msg) from exc
+
+    if isinstance(obj, torch.Tensor):
+        return obj.device
+
+    for accessor in (getattr(obj, "parameters", None), getattr(obj, "buffers", None)):
+        if callable(accessor):
+            try:
+                return next(accessor()).device
+            except StopIteration:
+                continue
+
+    return torch.device("cpu")
+
+
+def tensor_to_numpy(tensor: torch.Tensor) -> np.ndarray:
+    """Convert a PyTorch tensor to a numpy array, moving from GPU to CPU if needed.
+
+    Args:
+        tensor: Any :class:`torch.Tensor`, on any device.
+
+    Returns:
+        A numpy array with the same shape and dtype as ``tensor``.
+    """
+    return tensor.detach().cpu().numpy()
+
+
+# ---------------------------------------------------------------------------
+# Private helpers
+# ---------------------------------------------------------------------------
+
+def _try_convert_pil_image(image: object) -> np.ndarray | None:
+    """Attempt to convert a PIL image to an RGB numpy array.
+
+    Args:
+        image: Candidate object to convert.
+
+    Returns:
+        A ``(H, W, 3)`` uint8 numpy array if ``image`` is a
+        :class:`PIL.Image.Image`, or ``None`` if PIL is not installed or
+        ``image`` is not a PIL image.
+    """
+    try:
+        from PIL import Image
+    except ImportError:
+        return None
+    if isinstance(image, Image.Image):
+        return np.asarray(image.convert("RGB"))
+    return None
+
+
+def _try_convert_torch_tensor(image: object) -> np.ndarray | None:
+    """Attempt to convert a PyTorch tensor to a ``(H, W, C)`` numpy array.
+
+    Handles tensors with shapes ``(H, W)``, ``(C, H, W)``, ``(H, W, C)``,
+    and ``(1, C, H, W)``. When both the first and last dimension are in
+    ``{1, 3, 4}``, ``(C, H, W)`` layout is assumed.
+
+    Args:
+        image: Candidate object to convert.
+
+    Returns:
+        A numpy array with shape ``(H, W, C)`` if ``image`` is a
+        :class:`torch.Tensor`, or ``None`` if PyTorch is not installed or
+        ``image`` is not a tensor.
+
+    Raises:
+        ValueError: If the tensor has an unsupported number of dimensions.
+    """
+    try:
+        import torch
+    except ImportError:
+        return None
+    if not isinstance(image, torch.Tensor):
+        return None
+
+    tensor = image.detach().cpu()
+    if tensor.ndim == 4 and tensor.shape[0] == 1:
+        tensor = tensor.squeeze(0)
+    if tensor.ndim == 2:
+        return tensor.numpy()[..., np.newaxis]
+    if tensor.ndim == 3:
+        if tensor.shape[-1] in (1, 3, 4) and tensor.shape[0] not in (1, 3, 4):
+            pass  # already (H, W, C)
+        elif tensor.shape[0] in (1, 3, 4):
+            tensor = tensor.permute(1, 2, 0)  # (C, H, W) → (H, W, C)
+        return tensor.numpy()
+    msg = f"Expected PyTorch tensor with 2, 3, or 4 dimensions, got shape {tuple(tensor.shape)}"
+    raise ValueError(msg)
