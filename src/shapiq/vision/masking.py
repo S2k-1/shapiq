@@ -17,12 +17,12 @@ class CNNMaskingStrategy(ABC):
     """
     
     @abstractmethod
-    def apply(self, image: torch.Tensor, player_masks: np.ndarray, coalitions: torch.BoolTensor) -> torch.Tensor:
+    def apply(self, image: torch.Tensor, player_masks: torch.Tensor, coalitions: torch.BoolTensor) -> torch.Tensor:
         """Apply masking to produce a batch of masked images.
 
         Args:
             image: Original image as a float32 ``(C, H, W)`` tensor.
-            player_masks: Boolean numpy array of shape ``(n_players, H, W)``
+            player_masks: Boolean tensor of shape ``(n_players, H, W)``
                 mapping each player to its pixel region.
             coalitions: Boolean tensor of shape ``(n_coalitions, n_players)``
                 where ``True`` indicates a player is present (unmasked).
@@ -35,26 +35,23 @@ class CNNMaskingStrategy(ABC):
 
     def _build_pixel_mask(
         self,
-        player_masks: np.ndarray,
+        player_masks: torch.Tensor,
         coalitions: torch.BoolTensor,
     ) -> torch.Tensor:
         """Build a combined pixel absence mask for all coalitions.
 
         Args:
-            player_masks: Boolean numpy array of shape ``(n_players, H, W)``.
+            player_masks: Boolean tensor of shape ``(n_players, H, W)``.
             coalitions: Boolean tensor of shape ``(n_coalitions, n_players)``.
 
         Returns:
             Boolean tensor of shape ``(n_coalitions, H, W)`` where ``True``
             means the pixel belongs to an absent player and should be imputed.
         """
-        import torch
-
         absent_players = ~coalitions  # (n_coalitions, n_players)
-        masks_t = torch.from_numpy(player_masks).to(coalitions.device)  # (n_players, H, W)
-
-        n_players, H, W = masks_t.shape
-        masks_flat = masks_t.view(n_players, -1).float()  # (n_players, H*W)
+        
+        n_players, H, W = player_masks.shape
+        masks_flat = player_masks.view(n_players, -1).float()  # (n_players, H*W)
 
         # Union pixel masks of all absent players per coalition
         pixel_mask = (absent_players.float() @ masks_flat).bool()  # (n_coalitions, H*W)
@@ -67,7 +64,7 @@ class MeanColorMasking(CNNMaskingStrategy):
     original image and broadcast into the masked regions.
     """
     
-    def apply(self, image: torch.Tensor, player_masks: np.ndarray, coalitions: torch.BoolTensor) -> torch.Tensor:
+    def apply(self, image: torch.Tensor, player_masks: torch.Tensor, coalitions: torch.BoolTensor) -> torch.Tensor:
         import torch
         pixel_mask = self._build_pixel_mask(player_masks, coalitions)  # (n_coalitions, H, W)
         mean_color = image.mean(dim=(1, 2))  # (C,)
@@ -87,7 +84,7 @@ class ZeroMasking(CNNMaskingStrategy):
     def __init__(self, value: float = 0.0):
         self.value = value
     
-    def apply(self, image: torch.Tensor, player_masks: np.ndarray, coalitions: torch.BoolTensor) -> torch.Tensor:        
+    def apply(self, image: torch.Tensor, player_masks: torch.Tensor, coalitions: torch.BoolTensor) -> torch.Tensor:        
         import torch
         pixel_mask = self._build_pixel_mask(player_masks, coalitions)  # (n_coalitions, H, W)
         
@@ -109,14 +106,14 @@ class TransformerMaskingStrategy(ABC):
     def apply(
         self,
         coalitions: torch.BoolTensor,
-        token_masks: np.ndarray,
+        token_masks: torch.Tensor,
     ) -> torch.BoolTensor: 
         """Convert coalitions to a token-level boolean mask.
 
         Args:
             coalitions: Boolean tensor of shape ``(n_coalitions, n_players)``
                 where ``True`` indicates a player is present.
-            token_masks: Integer numpy array of shape
+            token_masks: Integer tensor of shape
                 ``(n_players, tokens_per_player)`` mapping each player to its
                 flat token indices.
 
@@ -130,7 +127,7 @@ class TransformerMaskingStrategy(ABC):
     def _to_token_mask(
         self,
         coalitions: torch.BoolTensor, 
-        token_masks: np.ndarray, 
+        token_masks: torch.Tensor, 
     ) -> torch.BoolTensor:            
         """Convert a coalition tensor to a flat token-level boolean mask.
 
@@ -140,7 +137,7 @@ class TransformerMaskingStrategy(ABC):
         Args:
             coalitions: Boolean tensor of shape ``(n_coalitions, n_players)``
                 where ``True`` indicates a player is present.
-            token_masks: Integer numpy array of shape
+            token_masks: Integer tensor of shape
                 ``(n_players, tokens_per_player)`` containing the flat token
                 indices for each player.
 
@@ -150,14 +147,12 @@ class TransformerMaskingStrategy(ABC):
         """
         import torch
 
-        device = coalitions.device
         n_players = token_masks.shape[0]
         n_tokens = int(token_masks.max()) + 1
 
         # (n_players, n_tokens): one-hot encoding of which tokens belong to which player
-        token_masks_t = torch.from_numpy(token_masks).to(device)  # (n_players, tokens_per_player)
         player_to_token = torch.zeros((n_players, n_tokens), dtype=torch.bool, device=coalitions.device)
-        player_to_token.scatter_(1, token_masks_t, True)  # (n_players, n_tokens)
+        player_to_token.scatter_(1, token_masks, True)  # (n_players, n_tokens)
 
         # A token is visible (False) if at least one present player owns it
         visible = coalitions.float() @ player_to_token.float()  # (n_coalitions, n_tokens)
@@ -171,7 +166,7 @@ class BoolMaskedPosStrategy(TransformerMaskingStrategy):
     argument (e.g. :class:`~transformers.ViTForMaskedImageModeling`).
     """
 
-    def apply(self, coalitions: torch.BoolTensor, token_masks: np.ndarray) -> torch.BoolTensor:
+    def apply(self, coalitions: torch.BoolTensor, token_masks: torch.Tensor) -> torch.BoolTensor:
         return self._to_token_mask(coalitions, token_masks)
 
 
@@ -181,7 +176,7 @@ class MaskTokenStrategy(TransformerMaskingStrategy):
     def __init__(self, model) -> None:
         self._model = model
 
-    def apply(self, coalitions: torch.BoolTensor, token_masks: np.ndarray) -> torch.BoolTensor:
+    def apply(self, coalitions: torch.BoolTensor, token_masks: torch.Tensor) -> torch.BoolTensor:
         import torch
         
         self._model.vit.embeddings.mask_token = torch.nn.Parameter(

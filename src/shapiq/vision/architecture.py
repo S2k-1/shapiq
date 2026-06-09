@@ -37,7 +37,7 @@ class ModelArchitectureStrategy(ABC):
         ...
         
     @property
-    def player_masks(self) -> np.ndarray:
+    def player_masks(self) -> torch.Tensor:
         """(n_players, H, W) boolean array of pixel masks for visualization."""
         ...
 
@@ -62,7 +62,7 @@ class CNNArchitecture(ModelArchitectureStrategy):
         self.model = model
         self._masking_strategy = masking_strategy or self.default_masking_strategy()
         self._player_strategy = player_strategy or self.default_player_strategy()
-        self._player_masks: np.ndarray | None = None
+        self._player_masks: torch.Tensor | None = None
         self._image_tensor: torch.Tensor | None = None
         self._class_id: int | None = None
 
@@ -86,7 +86,7 @@ class CNNArchitecture(ModelArchitectureStrategy):
         
         device = get_torch_device(self.model)
         self._image_tensor = to_tensor_chw(image, device=device)
-        self._player_masks = self._player_strategy.get_masks(image)
+        self._player_masks = torch.from_numpy(self._player_strategy.get_masks(image)).to(device)
         
         with torch.no_grad():
             logits = self.model(self._image_tensor.unsqueeze(0))
@@ -113,7 +113,7 @@ class CNNArchitecture(ModelArchitectureStrategy):
         return logits[:, self._class_id]
     
     @property
-    def player_masks(self) -> np.ndarray:
+    def player_masks(self) -> torch.Tensor:
         return self._player_masks
 
 
@@ -141,8 +141,8 @@ class TransformerArchitecture(ModelArchitectureStrategy):
         self._masking_strategy = masking_strategy or self.default_masking_strategy()
         self._player_strategy = player_strategy or self.default_player_strategy()
         self._pixel_values: torch.Tensor | None = None
-        self._player_masks: np.ndarray | None = None
-        self._token_masks: np.ndarray | None = None
+        self._player_masks: torch.Tensor | None = None
+        self._token_masks: torch.Tensor | None = None
         self._class_id: int | None = None
 
     def default_player_strategy(self) -> PatchStrategy:
@@ -175,8 +175,8 @@ class TransformerArchitecture(ModelArchitectureStrategy):
             logits = self.model(pixel_values=self._pixel_values).logits
         self._class_id = int(logits.argmax(-1).item())
         
-        self._player_masks = self._player_strategy.get_pixel_masks(image)
-        self._token_masks = self._player_strategy.get_token_masks()
+        self._player_masks = torch.from_numpy(self._player_strategy.get_pixel_masks(image)).to(device)
+        self._token_masks = torch.from_numpy(self._player_strategy.get_token_masks()).to(device)
 
     def value_function(self, coalitions: torch.BoolTensor) -> torch.Tensor:
         """Evaluate the ViT for a batch of coalitions.
@@ -202,5 +202,5 @@ class TransformerArchitecture(ModelArchitectureStrategy):
         return probs[:, self._class_id]
     
     @property
-    def player_masks(self) -> np.ndarray:
+    def player_masks(self) -> torch.Tensor:
         return self._player_masks

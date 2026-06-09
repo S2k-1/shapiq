@@ -79,7 +79,7 @@ class ImageImputer(Imputer):
         Returns:
             Boolean numpy array of shape ``(n_players, H, W)``.
         """
-        return self.architecture.player_masks
+        return tensor_to_numpy(self.architecture.player_masks)
     
     def _predict_model_architecture(self, model, masking_strategy=None, player_strategy=None, vit_processor=None) -> ModelArchitectureStrategy:
         """Auto-detects the model architecture and returns the appropriate ModelArchitectureStrategy."""
