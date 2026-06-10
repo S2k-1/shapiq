@@ -55,7 +55,8 @@ class ImageExplainer(Explainer):
     def explain_function(
         self, x: ImageLike| None, *, budget: int = 64
     ) -> InteractionValues:  
-        self._imputer.fit(x)
+        if x is not None:
+            self._imputer.fit(x)
         interaction_values = self._approximator.approximate(budget=budget, game=self._imputer)
         interaction_values.baseline_value = self.baseline_value
         
