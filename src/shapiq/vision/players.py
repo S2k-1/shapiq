@@ -1,12 +1,15 @@
+"""Player strategies for vision models, that define how to create players from images. 
+Players are defined in pixel space for CNNs and token space for ViTs. 
+Each strategy returns boolean masks that map each player to its corresponding pixels or tokens.
+
+Requires scikit-image for superpixel segmentation, otherwise numpy only."""
+
 from __future__ import annotations
 
 import math
 import numpy as np
-from typing import Optional, Literal, TYPE_CHECKING
+from typing import Optional, Literal
 from abc import ABC, abstractmethod
-
-if TYPE_CHECKING:
-    import torch
 
 class PlayerStrategy(ABC):
     """Defines how the image is split into n_players regions."""
@@ -169,7 +172,7 @@ class TransformerPlayerStrategy(PlayerStrategy, ABC):
     """Player strategy that returns a 1D boolean mask in latent/token space."""
 
     @abstractmethod
-    def get_token_masks(self) -> torch.Tensor:
+    def get_token_masks(self) -> np.ndarray:
         # returns (n_tokens,) bool
         ...
 
