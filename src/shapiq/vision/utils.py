@@ -12,21 +12,6 @@ else:
     ImageLike = np.ndarray
 
 
-def is_valid_image_shape(image: np.ndarray) -> bool:
-    """Check whether a numpy array has a valid ``(H, W, C)`` image shape.
-
-    Args:
-        image: Numpy array to validate.
-
-    Returns:
-        ``True`` if ``image`` has exactly three dimensions and the channel
-        dimension (axis 2) has size 1 or 3, ``False`` otherwise.
-    """
-    if image.ndim != 3 or image.shape[2] not in (1, 3):
-        return False
-    return True
-
-
 def as_hwc_array(image: ImageLike) -> np.ndarray:
     """Convert an image to a ``(H, W, C)`` numpy array.
 

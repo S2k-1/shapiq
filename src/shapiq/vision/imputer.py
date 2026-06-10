@@ -9,7 +9,7 @@ from .architecture import ModelArchitectureStrategy, CNNArchitecture, Transforme
 from .players import PlayerStrategy
 from .masking import CNNMaskingStrategy, TransformerMaskingStrategy
 
-from .utils import as_hwc_array, is_valid_image_shape, tensor_to_numpy, ImageLike
+from .utils import as_hwc_array, tensor_to_numpy, ImageLike
 
 
 class ImageImputer(Imputer):
@@ -28,7 +28,6 @@ class ImageImputer(Imputer):
     ):
                      
         self.image = as_hwc_array(image)
-        print(self.image.shape, self.image.dtype)
         self.architecture = model_architecture or self._predict_model_architecture(model, masking_strategy, player_strategy, vit_processor)
 
         self.architecture.prepare(self.image)
