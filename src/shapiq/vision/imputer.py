@@ -3,12 +3,13 @@ from __future__ import annotations
 import numpy as np
 
 from shapiq.imputer.base import Imputer
+from shapiq.typing import Model
 
 from .architecture import ModelArchitectureStrategy, CNNArchitecture, TransformerArchitecture
 from .players import PlayerStrategy
 from .masking import CNNMaskingStrategy, TransformerMaskingStrategy
 
-from .utils import as_hwc_array, is_valid_image_shape, tensor_to_numpy
+from .utils import as_hwc_array, is_valid_image_shape, tensor_to_numpy, ImageLike
 
 
 class ImageImputer(Imputer):
@@ -17,25 +18,20 @@ class ImageImputer(Imputer):
     """
     def __init__(
         self,
-        model,
-        image: np.ndarray,
+        model: Model,
+        image: ImageLike,
         player_strategy: PlayerStrategy | None = None,
         masking_strategy: CNNMaskingStrategy | TransformerMaskingStrategy | None = None,
         normalize: bool = True,
         model_architecture: ModelArchitectureStrategy | None = None,
         vit_processor=None,
     ):
-        image = as_hwc_array(image)
-        if not is_valid_image_shape(image):
-            raise ValueError(
-                f"Expected image with shape (H, W, C), got {image.shape}."
-                "Convert your image to (H, W, C) format before passing it to the imputer."
-            )
-        
-        self.image = image
+                     
+        self.image = as_hwc_array(image)
+        print(self.image.shape, self.image.dtype)
         self.architecture = model_architecture or self._predict_model_architecture(model, masking_strategy, player_strategy, vit_processor)
 
-        self.architecture.prepare(image)
+        self.architecture.prepare(self.image)
         self.n_features = self.architecture._player_strategy.n_players
 
         dummy_data = np.zeros((1, self.n_features))
@@ -81,7 +77,7 @@ class ImageImputer(Imputer):
         """
         return tensor_to_numpy(self.architecture.player_masks)
     
-    def _predict_model_architecture(self, model, masking_strategy=None, player_strategy=None, vit_processor=None) -> ModelArchitectureStrategy:
+    def _predict_model_architecture(self, model: Model, masking_strategy=None, player_strategy=None, vit_processor=None) -> ModelArchitectureStrategy:
         """Auto-detects the model architecture and returns the appropriate ModelArchitectureStrategy."""
         
         import torchvision.models as models

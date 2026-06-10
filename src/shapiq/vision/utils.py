@@ -30,13 +30,16 @@ def is_valid_image_shape(image: np.ndarray) -> bool:
 def as_hwc_array(image: ImageLike) -> np.ndarray:
     """Convert an image to a ``(H, W, C)`` numpy array.
 
-    Accepts numpy arrays (``(H, W, C)`` or ``(H, W)``), PIL images, and
-    PyTorch tensors (``(C, H, W)``, ``(H, W, C)``, or ``(1, C, H, W)``).
-    Other array-like objects are coerced with :func:`numpy.asarray` when
-    possible. PIL images are force-converted to RGB before conversion.
+    Accepts:
 
-    When both the first and last dimension of a 3-D tensor are in
-    ``{1, 3, 4}``, ``(C, H, W)`` layout is assumed.
+    - **numpy arrays**: ``(H, W)`` or ``(H, W, C)`` — used as-is after
+      adding a channel axis for 2-D inputs.
+    - **PIL images**: force-converted to RGB, then to a ``(H, W, 3)`` uint8
+      array.
+    - **PyTorch tensors**: ``(C, H, W)`` or ``(H, W, C)`` — see
+      :func:`_try_convert_torch_tensor` for layout-detection rules.
+
+    4-D inputs are **not** accepted. Pass a single image, not a batch.
 
     Args:
         image: Input image in a supported format.
@@ -45,11 +48,19 @@ def as_hwc_array(image: ImageLike) -> np.ndarray:
         A numpy array with shape ``(H, W, C)``.
 
     Raises:
-        TypeError: If the input type is not supported and cannot be coerced
-            with :func:`numpy.asarray`.
-        ValueError: If the resulting array does not have two or three
-            dimensions after conversion.
+        TypeError: If the input type is not supported.
+        ValueError: If the input has 4 or more dimensions, or if the
+            resulting array cannot be reduced to 3 dimensions.
     """
+    ndim = getattr(image, "ndim", None) or (
+        len(getattr(image, "shape", ())) if hasattr(image, "shape") else None
+    )
+    if ndim is not None and ndim >= 4:
+        raise ValueError(
+            f"Expected a single image with 2 or 3 dimensions, got {ndim}-D input. "
+            "Pass one image at a time — batched arrays are not supported."
+        )
+    
     if isinstance(image, np.ndarray):
         arr = np.asarray(image)
     else:
@@ -74,21 +85,19 @@ def as_hwc_array(image: ImageLike) -> np.ndarray:
         msg = f"image must be a numpy array, PIL Image, or PyTorch tensor; got {type(image)!r}"
         raise TypeError(msg)
 
+    if arr.ndim >= 4:
+        raise ValueError(
+            f"Expected a single image with 2 or 3 dimensions, got shape {arr.shape}. "
+            "Pass one image at a time — batched arrays are not supported."
+        )
+
     if arr.ndim == 2:
         arr = arr[..., np.newaxis]
 
-    if arr.ndim == 4 and arr.shape[0] == 1:
-        arr = arr[0]
-        if (
-            arr.ndim == 3
-            and arr.shape[0] in (1, 3, 4)
-            and arr.shape[0] not in (arr.shape[1], arr.shape[2])
-        ) or (arr.ndim == 3 and arr.shape[0] in (1, 3, 4) and arr.shape[-1] not in (1, 3, 4)):
-            arr = np.transpose(arr, (1, 2, 0))
-
     if arr.ndim != 3:
-        msg = f"Expected image with 2 or 3 dimensions after conversion, got shape {arr.shape}"
-        raise ValueError(msg)
+        raise ValueError(
+            f"Expected image with 2 or 3 dimensions after conversion, got shape {arr.shape}"
+        )
 
     return arr
 
@@ -231,8 +240,12 @@ def _try_convert_torch_tensor(image: object) -> np.ndarray | None:
         return None
 
     tensor = image.detach().cpu()
-    if tensor.ndim == 4 and tensor.shape[0] == 1:
-        tensor = tensor.squeeze(0)
+    
+    if tensor.ndim >= 4:
+        raise ValueError(
+            f"Expected a single image tensor with 2 or 3 dimensions, got shape {tuple(tensor.shape)}. "
+            "Pass one image at a time — batched tensors are not supported."
+        )
     if tensor.ndim == 2:
         return tensor.numpy()[..., np.newaxis]
     if tensor.ndim == 3:
@@ -241,5 +254,7 @@ def _try_convert_torch_tensor(image: object) -> np.ndarray | None:
         elif tensor.shape[0] in (1, 3, 4):
             tensor = tensor.permute(1, 2, 0)  # (C, H, W) → (H, W, C)
         return tensor.numpy()
-    msg = f"Expected PyTorch tensor with 2, 3, or 4 dimensions, got shape {tuple(tensor.shape)}"
-    raise ValueError(msg)
+
+    raise ValueError(
+        f"Expected PyTorch tensor with 2 or 3 dimensions, got shape {tuple(tensor.shape)}"
+    )

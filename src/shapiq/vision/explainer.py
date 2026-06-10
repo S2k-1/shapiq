@@ -15,6 +15,7 @@ from .imputer import ImageImputer
 from .players import PlayerStrategy
 from .masking import CNNMaskingStrategy, TransformerMaskingStrategy
 from .architecture import ModelArchitectureStrategy
+from .utils import ImageLike
 
 ImageExplainerIndices = ExplainerIndices
 
@@ -25,7 +26,7 @@ class ImageExplainer(Explainer):
     def __init__(
         self,
         model: Model,
-        data: np.ndarray,
+        data: ImageLike,
         *,
         player_strategy: PlayerStrategy | None = None,
         masking_strategy: CNNMaskingStrategy | TransformerMaskingStrategy | None = None,
@@ -62,7 +63,7 @@ class ImageExplainer(Explainer):
         )
 
     def explain_function(
-        self, x:np.ndarray | None, *, budget: int = 64
+        self, x:ImageLike| None, *, budget: int = 64
     ) -> InteractionValues:      
         interaction_values = self._approximator.approximate(budget=budget, game=self._imputer)
         interaction_values.baseline_value = self.baseline_value
