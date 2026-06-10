@@ -72,22 +72,22 @@ class CNNArchitecture(ModelArchitectureStrategy):
     def default_masking_strategy(self) -> MeanColorMasking:
         return MeanColorMasking()
 
-    def prepare(self, image: torch.Tensor) -> None:
+    def prepare(self, image: np.array) -> None:
         """Cache the image tensor, player masks, and predicted class index.
 
         Runs one forward pass on the unmasked image to determine the class
         index that will be tracked across all coalition evaluations.
 
         Args:
-            image: Float32 ``(C, H, W)`` tensor on the target device.
+            image: Input image as a ``(H, W, C)`` numpy array.
         """
         import torch
         from .utils import get_torch_device, to_tensor_chw
-        
+       
         device = get_torch_device(self.model)
         self._image_tensor = to_tensor_chw(image, device=device)
         self._player_masks = torch.from_numpy(self._player_strategy.get_masks(image)).to(device)
-        
+    
         with torch.no_grad():
             logits = self.model(self._image_tensor.unsqueeze(0))
             self._class_id = int(logits.argmax(dim=1).item())
