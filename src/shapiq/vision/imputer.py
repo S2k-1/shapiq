@@ -39,14 +39,19 @@ class ImageImputer(Imputer):
             self.normalization_value = self.empty_prediction
 
     def value_function(self, coalitions: np.ndarray) -> np.ndarray:
-        """
-        Evaluate the model for a batch of player coalitions.
-        
+        """Evaluate the model for a batch of player coalitions.
+
+        Converts ``coalitions`` to a boolean PyTorch tensor, splits it into
+        mini-batches of at most :attr:`batch_size` rows, and issues one
+        ``model`` forward call per mini-batch.
+
         Args:
-            coalitions: (n_coalitions, n_players) boolean array
-            
+            coalitions: Boolean array of shape ``(n_coalitions, n_players)``
+
         Returns:
-            (n_coalitions,) float array with model-predictions for each coalition.
+            Float numpy array of shape ``(n_coalitions,)`` containing the
+            scalar model output (logit or probability depending on
+            :attr:`architecture`) for each coalition.
         
         """
         import torch
