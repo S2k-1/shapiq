@@ -1,7 +1,13 @@
+"""Masking strategies for vision models, that define how to replace absent players
+in masked images before forwarding through the model. Masking is applied in pixel 
+space for CNNs and token space for ViTs.  
+
+Masking requires pytorch to be installed.
+"""
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-import numpy as np
 
 from typing import TYPE_CHECKING
 
