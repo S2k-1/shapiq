@@ -48,6 +48,17 @@ class TestAsHwcArray:
         expected = tensor.permute(1, 2, 0).numpy()
         np.testing.assert_array_equal(out, expected)
 
+    def test_torch_hwc_tensor(self) -> None:
+        tensor = torch.arange(12, dtype=torch.float32).reshape(2, 2, 3)
+        out = as_hwc_array(tensor)
+        np.testing.assert_array_equal(out, tensor.numpy())
+
+    def test_torch_hwc_tensor_4x4_layout_not_misread_as_chw(self) -> None:
+        """A (4, 4, 3) tensor is HWC; H=4 must not be treated as C in a CHW layout."""
+        tensor = torch.arange(48, dtype=torch.float32).reshape(4, 4, 3)
+        out = as_hwc_array(tensor)
+        np.testing.assert_array_equal(out, tensor.numpy())
+
     def test_batched_input_rejected(self) -> None:
         """4-D (batched) inputs are not supported and must raise ValueError."""
         with pytest.raises(ValueError, match="one image at a time"):
@@ -74,6 +85,12 @@ class TestToTensorChw:
         image = np.full((2, 2, 3), 5.0, dtype=np.float64)
         tensor = to_tensor_chw(image)
         assert torch.allclose(tensor, torch.full((3, 2, 2), 5.0))
+
+    def test_torch_hwc_tensor_roundtrip(self) -> None:
+        tensor = torch.arange(12, dtype=torch.float32).reshape(2, 2, 3)
+        out = to_tensor_chw(tensor)
+        expected = tensor.permute(2, 0, 1)
+        torch.testing.assert_close(out, expected)
 
 
 class TestTorchDeviceHelpers:

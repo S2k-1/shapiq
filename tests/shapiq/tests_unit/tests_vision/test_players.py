@@ -78,21 +78,34 @@ class TestSuperpixelStrategy:
         assert strategy.n_players == 7
 
     def test_get_masks_shape_and_dtype(self) -> None:
+        pytest.importorskip("skimage")
         rng = np.random.default_rng(0)
         image = rng.integers(0, 255, size=(32, 32, 3)).astype(np.float64)
         strategy = SuperpixelStrategy(n_segments=4)
         masks = strategy.get_masks(image)
+        assert masks.shape[0] == strategy.n_players
         assert masks.shape[1:] == (32, 32)
         assert masks.dtype == bool
 
     def test_get_masks_partition_property(self) -> None:
         """Each pixel should belong to exactly one superpixel."""
+        pytest.importorskip("skimage")
         rng = np.random.default_rng(1)
         image = rng.integers(0, 255, size=(24, 24, 3)).astype(np.float64)
         strategy = SuperpixelStrategy(n_segments=6)
         masks = strategy.get_masks(image)
         coverage = masks.sum(axis=0)
         assert (coverage == 1).all()
+
+    def test_slic_updates_n_players_after_segmentation(self) -> None:
+        """n_players reflects the actual SLIC output, not just the request."""
+        pytest.importorskip("skimage")
+        image = np.random.default_rng(2).integers(0, 255, size=(16, 16, 3)).astype(np.float64)
+        strategy = SuperpixelStrategy(n_segments=20)
+        masks = strategy.get_masks(image)
+        assert strategy.n_players == masks.shape[0]
+        assert strategy.n_players >= 1
+        assert (masks.sum(axis=0) == 1).all()
 
     def test_custom_label_mask(self) -> None:
         labels = np.array([[1, 1, 2, 2], [1, 1, 2, 2], [3, 3, 4, 4], [3, 3, 4, 4]])

@@ -13,7 +13,7 @@ from shapiq.vision.architecture import CNNArchitecture
 from shapiq.vision.imputer import ImageImputer
 from shapiq.vision.masking import MeanColorMasking, ZeroMasking
 
-from .conftest import ChannelSumModel, FixedMasksStrategy
+from .conftest import ChannelSumModel, FixedMasksStrategy, expected_full_coalition_value
 
 
 def _build_imputer(image, masks, masking_strategy, *, normalize=True, batch_size=32):
@@ -143,4 +143,55 @@ class TestImageImputerInputFormats:
         )
         values = imputer.value_function(np.array([[True, True]]))
         assert values.shape == (1,)
-        assert np.isfinite(values).all()
+        expected = expected_full_coalition_value(tiny_image, image_input)
+        assert values[0] == pytest.approx(expected)
+
+    def test_accepts_torch_hwc_tensor(self, three_player_masks) -> None:
+        """HWC tensors are only unambiguous when H is not in {1, 3, 4}."""
+        image = np.random.default_rng(0).integers(0, 255, size=(6, 6, 3)).astype(np.float64)
+        arch = CNNArchitecture(
+            model=ChannelSumModel(),
+            masking_strategy=ZeroMasking(),
+            player_strategy=FixedMasksStrategy(three_player_masks),
+        )
+        imputer = ImageImputer(
+            model_architecture=arch,
+            image=torch.from_numpy(image),
+            normalize=False,
+        )
+        values = imputer.value_function(np.array([[True, True, True]]))
+        assert values[0] == pytest.approx(image.sum())
+
+
+class TestImageImputerTransformer:
+    def test_transformer_architecture_value_function(self, transformer_architecture, image_24x24) -> None:
+        imputer = ImageImputer(
+            model_architecture=transformer_architecture,
+            image=image_24x24,
+            normalize=False,
+        )
+        assert imputer.n_players == 9
+        coalitions = np.array(
+            [
+                [False] * 9,
+                [True] + [False] * 8,
+                [True] * 5 + [False] * 4,
+                [True] * 9,
+            ]
+        )
+        values = imputer.value_function(coalitions)
+        assert values.shape == (4,)
+        assert values[0] == pytest.approx(0.5, abs=1e-5)
+        assert values[0] < values[1] < values[2] < values[3]
+
+    def test_empty_prediction_matches_all_absent_coalition(
+        self, transformer_architecture, image_24x24
+    ) -> None:
+        imputer = ImageImputer(
+            model_architecture=transformer_architecture,
+            image=image_24x24,
+            normalize=False,
+        )
+        assert imputer.empty_prediction == pytest.approx(
+            imputer.value_function(np.array([[False] * 9]))[0]
+        )

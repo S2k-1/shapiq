@@ -8,6 +8,7 @@ import pytest
 from shapiq.interaction_values import InteractionValues
 from shapiq.vision import ImageExplainer
 from shapiq.vision.architecture import CNNArchitecture
+from shapiq.vision.imputer import ImageImputer
 from shapiq.vision.masking import ZeroMasking
 
 from .conftest import ChannelSumModel, FixedMasksStrategy
@@ -58,3 +59,75 @@ class TestImageExplainer:
         assert isinstance(result, InteractionValues)
         assert result.n_players == 3
         assert np.isfinite(result.values).all()
+
+    def test_explainer_uses_provided_imputer(self, tiny_image, two_player_masks) -> None:
+        arch = _build_arch(two_player_masks)
+        imputer = ImageImputer(
+            model_architecture=arch,
+            image=tiny_image,
+            normalize=False,
+            batch_size=8,
+        )
+        explainer = ImageExplainer(
+            model_architecture=arch,
+            data=tiny_image,
+            imputer=imputer,
+            random_state=0,
+        )
+        assert explainer._imputer is imputer
+        assert explainer._imputer.batch_size == 8
+
+    def test_explainer_sets_empty_interaction_for_k_sii(
+        self, tiny_image, two_player_masks
+    ) -> None:
+        explainer = ImageExplainer(
+            model_architecture=_build_arch(two_player_masks),
+            data=tiny_image,
+            index="k-SII",
+            random_state=0,
+        )
+        result = explainer.explain_function(tiny_image, budget=16)
+        assert result[()] == pytest.approx(explainer.baseline_value)
+
+    def test_explain_function_uses_constructor_image_not_argument(
+        self, two_player_masks
+    ) -> None:
+        """``explain_function(x)`` does not re-bind the imputer to ``x`` (current API)."""
+        image_a = np.full((4, 4, 3), 200.0)
+        image_b = np.zeros((4, 4, 3))
+        explainer = ImageExplainer(
+            model_architecture=_build_arch(two_player_masks),
+            data=image_a,
+            index="k-SII",
+            max_order=2,
+            random_state=0,
+        )
+        result_with_a = explainer.explain_function(image_a, budget=32)
+        result_with_b = explainer.explain_function(image_b, budget=32)
+        np.testing.assert_allclose(result_with_a.values, result_with_b.values)
+
+        explainer_on_b = ImageExplainer(
+            model_architecture=_build_arch(two_player_masks),
+            data=image_b,
+            index="k-SII",
+            max_order=2,
+            random_state=0,
+        )
+        native_b = explainer_on_b.explain_function(image_b, budget=32)
+        assert not np.allclose(result_with_a.values, native_b.values)
+
+
+class TestImageExplainerTransformer:
+    def test_transformer_explainer_end_to_end(self, transformer_architecture, image_24x24) -> None:
+        explainer = ImageExplainer(
+            model_architecture=transformer_architecture,
+            data=image_24x24,
+            index="k-SII",
+            max_order=2,
+            random_state=0,
+        )
+        result = explainer.explain_function(image_24x24, budget=32)
+        assert isinstance(result, InteractionValues)
+        assert result.n_players == 9
+        assert np.isfinite(result.values).all()
+        assert result[()] == pytest.approx(explainer.baseline_value)

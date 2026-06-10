@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 import torch
 
+from shapiq.vision.architecture import TransformerArchitecture
+from shapiq.vision.masking import BoolMaskedPosStrategy
 from shapiq.vision.players import CNNPlayerStrategy
+from shapiq.vision.utils import to_tensor_chw
 
 
 class FixedMasksStrategy(CNNPlayerStrategy):
@@ -69,3 +74,61 @@ def three_player_masks() -> np.ndarray:
     masks[1, :, 2:4] = True
     masks[2, :, 4:6] = True
     return masks
+
+
+class MockViT:
+    """HF-style ViT mock for :class:`TransformerArchitecture` tests.
+
+    ``config.image_size=24`` and ``config.patch_size=8`` yield ``grid_size=3``,
+    compatible with the default 9-player patch grid.  With ``bool_masked_pos``
+    the class-0 logit equals the number of visible tokens.
+    """
+
+    class _Config:
+        image_size = 24
+        patch_size = 8
+        hidden_size = 4
+
+    config = _Config()
+
+    def __init__(self) -> None:
+        self.vit = SimpleNamespace(
+            embeddings=SimpleNamespace(mask_token=torch.nn.Parameter(torch.zeros(1, 1, 4)))
+        )
+
+    def __call__(self, pixel_values=None, bool_masked_pos=None, **_):
+        batch_size = pixel_values.shape[0]
+        if bool_masked_pos is None:
+            return SimpleNamespace(logits=torch.tensor([[2.0, 0.5]]).expand(batch_size, -1).clone())
+        visible = (~bool_masked_pos).sum(dim=1).float()
+        return SimpleNamespace(logits=torch.stack([visible, -visible], dim=1))
+
+
+class MockViTProcessor:
+    """Mimics a HF image processor turning an HWC image into ``(1, C, H, W)``."""
+
+    def __call__(self, images=None, return_tensors="pt"):
+        arr = np.asarray(images, dtype=np.float32)
+        tensor = torch.from_numpy(arr.transpose(2, 0, 1).copy()).unsqueeze(0)
+        return {"pixel_values": tensor}
+
+
+@pytest.fixture
+def image_24x24() -> np.ndarray:
+    rng = np.random.default_rng(42)
+    return rng.integers(0, 255, size=(24, 24, 3)).astype(np.float64)
+
+
+@pytest.fixture
+def transformer_architecture() -> TransformerArchitecture:
+    return TransformerArchitecture(
+        model=MockViT(),
+        vit_processor=MockViTProcessor(),
+        masking_strategy=BoolMaskedPosStrategy(),
+    )
+
+
+def expected_full_coalition_value(image: np.ndarray, image_input) -> float:
+    """Expected channel-sum model output for a grand coalition after format conversion."""
+    tensor = to_tensor_chw(image_input(image))
+    return float(tensor.double().sum().item())
