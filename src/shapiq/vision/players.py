@@ -41,7 +41,154 @@ class CNNPlayerStrategy(PlayerStrategy, ABC):
             Boolean numpy array of shape ``(n_players, H, W)``
         """
         ...
-        
+
+
+class CustomPlayerStrategy(CNNPlayerStrategy):
+    """Uses a set of pre-computed binary masks as players provided by the user.
+
+    Provided masks may overlap — pixels covered by multiple
+    players will be masked whenever any of those players is absent.
+
+    Pixels not covered by any player mask are outside the game: they stay
+    visible in every coalition because no player owns them and cannot be
+    attributed or masked away. A :exc:`UserWarning` is raised when uncovered
+    pixels are detected.
+
+    Args:
+        masks: Array of shape ``(n_players, H, W)``. Any dtype is accepted and
+            will be cast to ``bool``. Should be evaluated to ``True`` for pixels 
+            belonging to the player and ``False`` otherwise.
+        verify: If ``True`` (default), validates that no player mask is entirely
+            empty and warns about uncovered pixels.
+
+    Raises:
+        ValueError: If ``masks`` is not a 3-D array or any player mask is
+            entirely empty.
+
+    Example::
+
+        masks = np.zeros((3, 224, 224), dtype=bool)
+        masks[0, :112, :] = True     # top half
+        masks[1, 112:, :] = True     # bottom half
+        masks[2, :, 100:124] = True  # centre column (overlaps both)
+        strategy = CustomPlayerStrategy(masks)
+    """
+
+    def __init__(self, masks: np.ndarray, verify: bool = True) -> None:
+        masks = np.asarray(masks, dtype=bool)
+        if masks.ndim != 3:
+            raise ValueError(
+                f"masks must be a 3-D array of shape (n_players, H, W), "
+                f"got shape {masks.shape}."
+            )
+        self._masks = masks
+        if verify:
+            self._verify(self._masks)
+
+    @staticmethod
+    def _verify(masks: np.ndarray) -> None:
+        """Validate mask array and warn about uncovered pixels.
+
+        Args:
+            masks: Boolean array of shape ``(n_players, H, W)``.
+
+        Raises:
+            ValueError: If any player mask is entirely empty.
+        """
+        import warnings
+
+        if not masks.any(axis=(1, 2)).all():
+            empty = (~masks.any(axis=(1, 2))).nonzero()[0].tolist()
+            raise ValueError(
+                f"Player mask(s) at index {empty} are entirely empty (all False). "
+                "Each player must cover at least one pixel."
+            )
+        uncovered = (~masks.any(axis=0)).sum()
+        if uncovered > 0:
+            warnings.warn(
+                f"{uncovered} pixel(s) are not covered by any player mask. "
+                "These pixels will stay visible in every coalition and cannot be attributed.",
+                UserWarning,
+                stacklevel=3,
+            )
+
+    def get_masks(self, image: np.ndarray) -> np.ndarray:
+        """Return the pre-computed masks, validating against the image dimensions.
+
+        Args:
+            image: Input image as a ``(H, W, C)`` numpy array. Used only for
+                dimension validation — the image content is ignored.
+
+        Returns:
+            Boolean numpy array of shape ``(n_players, H, W)``.
+
+        Raises:
+            ValueError: If the mask spatial dimensions do not match the image.
+        """
+        if self._masks.shape[1:] != image.shape[:2]:
+            raise ValueError(
+                f"Mask spatial dimensions {self._masks.shape[1:]} do not match "
+                f"image dimensions {image.shape[:2]}."
+            )
+        return self._masks
+
+    @property
+    def n_players(self) -> int:
+        """Number of player masks."""
+        return self._masks.shape[0]
+
+
+class GridStrategy(CNNPlayerStrategy):
+    """Splits the image into a regular rectangular grid.
+
+    Divides the image into ``rows x cols`` non-overlapping patches. Patches are
+    sized via integer division, so the rightmost column and bottom row absorb
+    any remainder pixels when the image dimensions are not evenly divisible.
+
+    Args:
+        rows: Number of patch rows. Must be a positive integer.
+        cols: Number of patch columns. Defaults to ``rows`` (square grid).
+            Must be a positive integer.
+
+    Raises:
+        ValueError: If ``rows`` or ``cols`` are not positive integers.
+
+    Example::
+
+        strategy = GridStrategy(rows=3, cols=3)  # 9 players
+    """
+
+    def __init__(self, rows: int, cols: int | None = None) -> None:
+        if rows < 1 or (cols is not None and cols < 1):
+            raise ValueError("rows and cols must be positive integers.")
+        self.rows = rows
+        self.cols = cols if cols is not None else rows
+
+    def get_masks(self, image: np.ndarray) -> np.ndarray:
+        """Return per-patch boolean masks of shape ``(n_players, H, W)``.
+
+        Args:
+            image: Input image as a ``(H, W, C)`` numpy array. Used only for
+                spatial dimensions.
+
+        Returns:
+            Boolean numpy array of shape ``(n_players, H, W)``.
+        """
+        H, W = image.shape[:2]
+        row_edges = [r * H // self.rows for r in range(self.rows + 1)]
+        col_edges = [c * W // self.cols for c in range(self.cols + 1)]
+
+        row_assign = np.repeat(np.arange(self.rows), np.diff(row_edges))  # (H,)
+        col_assign = np.repeat(np.arange(self.cols), np.diff(col_edges))  # (W,)
+
+        player_grid = row_assign[:, None] * self.cols + col_assign[None, :]  # (H, W)
+        return player_grid == np.arange(self.n_players)[:, None, None]       # (n_players, H, W)
+
+    @property
+    def n_players(self) -> int:
+        """Number of grid tiles."""
+        return self.rows * self.cols
+      
 
 class SuperpixelStrategy(CNNPlayerStrategy):
     """Partition the image into superpixels.
