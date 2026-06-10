@@ -18,6 +18,7 @@ class ModelArchitectureStrategy(ABC):
     Subclasses bind a player strategy and a masking strategy to a concrete
     model type and implement batched coalition evaluation via
     :meth:`value_function`.
+    Input images are converted to tensors after player masks are generated.
     """
 
     @abstractmethod

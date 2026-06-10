@@ -36,6 +36,7 @@ class ImageExplainer(Explainer):
         random_state: int | None = None,
         model_architecture: ModelArchitectureStrategy | None = None,
         vit_processor=None,
+        batch_size: int = 32,
         **kwargs: Any,
     ) -> None:
         super().__init__(model=model, data=None, index=index, max_order=max_order)
@@ -50,6 +51,7 @@ class ImageExplainer(Explainer):
                 masking_strategy=masking_strategy,
                 model_architecture=model_architecture,
                 vit_processor=vit_processor,
+                batch_size=batch_size,
             )
             
         self._n_features: int = self._imputer.n_features

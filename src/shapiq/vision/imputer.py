@@ -24,11 +24,13 @@ class ImageImputer(Imputer):
         masking_strategy: CNNMaskingStrategy | TransformerMaskingStrategy | None = None,
         normalize: bool = True,
         model_architecture: ModelArchitectureStrategy | None = None,
+        batch_size: int = 32,
         vit_processor=None,
     ):
                      
         self.image = as_hwc_array(image)
         self.architecture = model_architecture or self._predict_model_architecture(model, masking_strategy, player_strategy, vit_processor)
+        self.batch_size = batch_size
 
         self.architecture.prepare(self.image)
         self.n_features = self.architecture._player_strategy.n_players
@@ -54,10 +56,23 @@ class ImageImputer(Imputer):
         import torch
         if coalitions.ndim == 1:
             coalitions = coalitions.reshape(1, -1)
-        
-        coalitions_t = torch.from_numpy(coalitions).bool()
-        predictions = self.architecture.value_function(coalitions_t)
-        return tensor_to_numpy(predictions)
+            
+        n = len(coalitions)
+        if n <= self.batch_size:
+            print("No batching required for value function evaluation.")
+            coalitions_t = torch.from_numpy(coalitions).bool()
+            return tensor_to_numpy(self.architecture.value_function(coalitions_t))
+            
+        chunks = [
+            tensor_to_numpy(
+                self.architecture.value_function(
+                    torch.from_numpy(coalitions[start : start + self.batch_size]).bool()
+                )
+            )
+            for start in range(0, n, self.batch_size)
+        ]
+        print(f"Batched to {len(chunks)} chunks for value function evaluation.")
+        return np.concatenate(chunks, axis=0)
 
     def calc_empty_prediction(self) -> float:
         """Evaluate the model with all players absent to obtain the baseline prediction.
