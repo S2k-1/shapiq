@@ -109,6 +109,7 @@ class TestSuperpixelStrategy:
         assert strategy.n_players >= 1
         assert (masks.sum(axis=0) == 1).all()
 
+
 class TestCustomMaskStrategy:
     def test_label_map_converted_correctly(self) -> None:
         """2-D label map → one bool mask per unique label, correct shape & coverage."""
@@ -187,5 +188,91 @@ class TestCustomMaskStrategy:
         strategy = CustomPlayerStrategy(masks=masks)
         np.testing.assert_array_equal(
             strategy.get_masks(np.zeros((4, 4, 3))),
+            strategy.get_masks(np.random.rand(4, 4, 3)),
+        )
+
+
+class TestGridStrategy:
+    def test_rejects_both_params(self) -> None:
+        """Providing both patch_size and grid_shape raises ValueError."""
+        with pytest.raises(ValueError):
+            GridStrategy(patch_size=32, grid_shape=4)
+
+    def test_rejects_neither_param(self) -> None:
+        """Providing neither patch_size nor grid_shape raises ValueError."""
+        with pytest.raises(ValueError):
+            GridStrategy()
+
+    def test_grid_shape_int_produces_square_grid(self) -> None:
+        """Scalar grid_shape=4: 4×4 = 16 players, masks cover every pixel."""
+        strategy = GridStrategy(grid_shape=4)
+        image = np.zeros((8, 8, 3))
+        masks = strategy.get_masks(image)
+        assert masks.shape == (16, 8, 8)
+        assert masks.dtype == bool
+        assert strategy.n_players == 16
+        assert (masks.sum(axis=0) == 1).all()
+
+    def test_grid_shape_tuple(self) -> None:
+        """Tuple grid_shape=(2, 3): 6 players."""
+        strategy = GridStrategy(grid_shape=(2, 3))
+        masks = strategy.get_masks(np.zeros((6, 9, 3)))
+        assert masks.shape == (6, 6, 9)
+        assert strategy.n_players == 6
+
+    def test_grid_shape_remainder_absorbed_into_last_patch(self) -> None:
+        """When image dims are not divisible, edge patches are larger."""
+        strategy = GridStrategy(grid_shape=3)
+        image = np.zeros((10, 10, 3)) 
+        masks = strategy.get_masks(image)
+        assert masks.shape == (9, 10, 10)
+        assert (masks.sum(axis=0) == 1).all() # full coverage
+
+    def test_patch_size_int_infers_grid(self) -> None:
+        """Scalar patch_size: grid inferred from image; all pixels covered."""
+        strategy = GridStrategy(patch_size=4)
+        image = np.zeros((8, 8, 3))
+        masks = strategy.get_masks(image)
+        assert masks.shape == (4, 8, 8)  # 2×2 grid of 4×4 patches
+        assert (masks.sum(axis=0) == 1).all()
+
+    def test_patch_size_tuple(self) -> None:
+        """Tuple patch_size=(2, 4):grid_y=4, grid_x=2 for an (8,8) image."""
+        strategy = GridStrategy(patch_size=(2, 4))
+        masks = strategy.get_masks(np.zeros((8, 8, 3)))
+        assert masks.shape == (8, 8, 8)  # 4 rows × 2 cols
+
+    def test_patch_size_non_multiple_edge_patches_smaller(self) -> None:
+        """Image dims not multiples of patch_size: last patches are smaller but full coverage holds."""
+        strategy = GridStrategy(patch_size=3)
+        image = np.zeros((10, 10, 3))  # ceil(10/3)=4: 4×4=16 players
+        masks = strategy.get_masks(image)
+        assert masks.shape[1:] == (10, 10)
+        assert (masks.sum(axis=0) == 1).all()
+
+    def test_n_players_raises_before_get_masks(self) -> None:
+        """Accessing n_players before get_masks raises RuntimeError."""
+        strategy = GridStrategy(grid_shape=4)
+        with pytest.raises(RuntimeError):
+            _ = strategy.n_players
+
+    def test_n_players_available_after_get_masks(self) -> None:
+        """n_players is accessible and correct after get_masks is called."""
+        strategy = GridStrategy(grid_shape=(2, 5))
+        strategy.get_masks(np.zeros((4, 10, 3)))
+        assert strategy.n_players == 10
+
+    def test_get_masks_accepts_2d_image(self) -> None:
+        """(H, W) image without channel dim is accepted."""
+        strategy = GridStrategy(grid_shape=2)
+        masks = strategy.get_masks(np.zeros((4, 4)))
+        assert masks.shape == (4, 4, 4)
+
+    def test_get_masks_is_deterministic(self) -> None:
+        """Calling get_masks twice with different content returns identical masks."""
+        strategy = GridStrategy(patch_size=2)
+        image = np.zeros((4, 4, 3))
+        np.testing.assert_array_equal(
+            strategy.get_masks(image),
             strategy.get_masks(np.random.rand(4, 4, 3)),
         )
