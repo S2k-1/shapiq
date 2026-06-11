@@ -10,6 +10,8 @@ from shapiq.vision.players import (
     PatchStrategy,
     PlayerStrategy,
     SuperpixelStrategy,
+    CustomPlayerStrategy,
+    GridStrategy,
     TransformerPlayerStrategy,
 )
 
@@ -107,42 +109,83 @@ class TestSuperpixelStrategy:
         assert strategy.n_players >= 1
         assert (masks.sum(axis=0) == 1).all()
 
-    def test_custom_label_mask(self) -> None:
-        labels = np.array([[1, 1, 2, 2], [1, 1, 2, 2], [3, 3, 4, 4], [3, 3, 4, 4]])
-        strategy = SuperpixelStrategy(mask=labels)
-        image = np.zeros((4, 4, 3))
-        masks = strategy.get_masks(image)
+class TestCustomMaskStrategy:
+    def test_label_map_converted_correctly(self) -> None:
+        """2-D label map → one bool mask per unique label, correct shape & coverage."""
+        labels = np.array([[1, 1, 2, 2],
+                           [1, 1, 2, 2],
+                           [3, 3, 4, 4],
+                           [3, 3, 4, 4]])
+        strategy = CustomPlayerStrategy(masks=labels)
+        masks = strategy.get_masks(np.zeros((4, 4, 3)))
         assert masks.shape == (4, 4, 4)
-        assert (masks.sum(axis=0) == 1).all()
+        assert masks.dtype == bool
         assert strategy.n_players == 4
+        assert (masks.sum(axis=0) == 1).all()  # non-overlapping labels
 
-    def test_custom_bool_mask_sets_n_players(self) -> None:
+    def test_bool_mask_accepted_and_non_bool_cast(self) -> None:
+        """3-D bool mask sets n_players; non-bool dtypes are cast to bool."""
+        masks_uint = np.zeros((2, 4, 4), dtype=np.uint8)
+        masks_uint[0, :, :2] = 255
+        masks_uint[1, :, 2:] = 1
+        strategy = CustomPlayerStrategy(masks=masks_uint)
+        result = strategy.get_masks(np.zeros((4, 4, 3)))
+        assert strategy.n_players == 2
+        assert result.dtype == bool
+
+    def test_overlapping_masks_allowed(self) -> None:
+        """Overlapping masks must not raise — pixels owned by multiple players are valid."""
+        masks = np.zeros((2, 4, 4), dtype=bool)
+        masks[0, :, :3] = True
+        masks[1, :, 1:] = True  # columns 1-2 overlap
+        strategy = CustomPlayerStrategy(masks=masks)  # no error
+        assert strategy.n_players == 2
+
+    def test_uncovered_pixels_raise_user_warning(self) -> None:
+        """Pixels not covered by any mask trigger a UserWarning (not ValueError)."""
+        masks = np.zeros((2, 4, 4), dtype=bool)
+        masks[0, :, :1] = True
+        masks[1, :, 1:2] = True  # columns 2-3 uncovered
+        with pytest.warns(UserWarning):
+            CustomPlayerStrategy(masks=masks)
+
+    def test_rejects_empty_player_mask(self) -> None:
+        """An all-False player mask raises ValueError."""
+        masks = np.zeros((2, 4, 4), dtype=bool)
+        masks[0, :, :] = True
+        # masks[1] stays all-False
+        with pytest.raises(ValueError):
+            CustomPlayerStrategy(masks=masks)
+
+    def test_rejects_invalid_shape(self) -> None:
+        """Non-3D arrays (and non-2D label maps) raise ValueError."""
+        with pytest.raises(ValueError):
+            CustomPlayerStrategy(masks=np.zeros((2, 4, 4, 1), dtype=bool))  # 4-D
+        with pytest.raises(ValueError):
+            CustomPlayerStrategy(masks=np.array([1, 2, 3]))  # 1-D
+
+    def test_label_map_requires_at_least_two_labels(self) -> None:
+        """A label map with only one unique value raises ValueError."""
+        with pytest.raises(ValueError):
+            CustomPlayerStrategy(masks=np.ones((4, 4), dtype=int))
+
+    def test_get_masks_raises_on_spatial_mismatch(self) -> None:
+        """Mask spatial dims not matching the image raises ValueError."""
+        labels = np.array([[1, 1, 2, 2],
+                           [1, 1, 2, 2],
+                           [3, 3, 4, 4],
+                           [3, 3, 4, 4]])
+        strategy = CustomPlayerStrategy(masks=labels)
+        with pytest.raises(ValueError, match="do not match"):
+            strategy.get_masks(np.zeros((8, 8, 3)))
+
+    def test_get_masks_image_content_ignored(self) -> None:
+        """Returned masks are identical regardless of image pixel values."""
         masks = np.zeros((2, 4, 4), dtype=bool)
         masks[0, :, :2] = True
         masks[1, :, 2:] = True
-        strategy = SuperpixelStrategy(mask=masks)
-        assert strategy.n_players == 2
-
-    def test_rejects_overlapping_custom_mask(self) -> None:
-        masks = np.zeros((2, 4, 4), dtype=bool)
-        masks[0, :, :2] = True
-        masks[1, :, 1:3] = True
-        with pytest.raises(ValueError, match="overlapping"):
-            SuperpixelStrategy(mask=masks)
-
-    def test_rejects_incomplete_custom_mask(self) -> None:
-        masks = np.zeros((2, 4, 4), dtype=bool)
-        masks[0, :, :1] = True
-        masks[1, :, 1:2] = True  # columns 2, 3 uncovered
-        with pytest.raises(ValueError, match="covered"):
-            SuperpixelStrategy(mask=masks)
-
-    def test_rejects_missing_n_segments_without_mask(self) -> None:
-        with pytest.raises(ValueError, match="Either n_segments or mask"):
-            SuperpixelStrategy(n_segments=None)
-
-    def test_custom_mask_shape_mismatch_raises(self) -> None:
-        labels = np.array([[1, 1, 2, 2], [1, 1, 2, 2], [3, 3, 4, 4], [3, 3, 4, 4]])
-        strategy = SuperpixelStrategy(mask=labels)
-        with pytest.raises(ValueError, match="does not match"):
-            strategy.get_masks(np.zeros((8, 8, 3)))
+        strategy = CustomPlayerStrategy(masks=masks)
+        np.testing.assert_array_equal(
+            strategy.get_masks(np.zeros((4, 4, 3))),
+            strategy.get_masks(np.random.rand(4, 4, 3)),
+        )
