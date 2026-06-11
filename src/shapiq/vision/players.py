@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import math
 import numpy as np
-from typing import Optional, Literal
+from typing import Literal
 from abc import ABC, abstractmethod
 
 class PlayerStrategy(ABC):
@@ -55,11 +55,11 @@ class CustomPlayerStrategy(CNNPlayerStrategy):
     pixels are detected.
 
     Args:
-        masks: Array of shape ``(n_players, H, W)``. Any dtype is accepted and
+        masks: either: Array of shape ``(n_players, H, W)``. Any dtype is accepted and
             will be cast to ``bool``. Should be evaluated to ``True`` for pixels 
             belonging to the player and ``False`` otherwise.
-        verify: If ``True`` (default), validates that no player mask is entirely
-            empty and warns about uncovered pixels.
+            or: a 2-D integer segmentation label map of shape ``(H, W)`` where each 
+            unique integer corresponds to a player, with at least 2 distinct labels
 
     Raises:
         ValueError: If ``masks`` is not a 3-D array or any player mask is
@@ -67,23 +67,30 @@ class CustomPlayerStrategy(CNNPlayerStrategy):
 
     Example::
 
-        masks = np.zeros((3, 224, 224), dtype=bool)
-        masks[0, :112, :] = True     # top half
-        masks[1, 112:, :] = True     # bottom half
-        masks[2, :, 100:124] = True  # centre column (overlaps both)
-        strategy = CustomPlayerStrategy(masks)
+        # From a pre-computed boolean mask array
+        strategy = CustomPlayerStrategy(masks)  # (n_players, H, W) bool
     """
 
-    def __init__(self, masks: np.ndarray, verify: bool = True) -> None:
-        masks = np.asarray(masks, dtype=bool)
+    def __init__(self, masks: np.ndarray) -> None:
+        masks = np.asarray(masks)
+        
+        if masks.ndim == 2 and np.issubdtype(masks.dtype, np.integer):
+            n_unique = len(np.unique(masks))
+            if n_unique < 2:
+                raise ValueError(
+                    f"Expected a segmentation label map with at least 2 distinct labels, "
+                    f"but found only {n_unique} unique value(s). "
+                )
+            masks = self.labels_to_masks(masks)
+        
         if masks.ndim != 3:
             raise ValueError(
                 f"masks must be a 3-D array of shape (n_players, H, W), "
                 f"got shape {masks.shape}."
             )
         self._masks = masks
-        if verify:
-            self._verify(self._masks)
+       
+        self._verify(self._masks)
 
     @staticmethod
     def _verify(masks: np.ndarray) -> None:
@@ -111,6 +118,19 @@ class CustomPlayerStrategy(CNNPlayerStrategy):
                 UserWarning,
                 stacklevel=3,
             )
+
+    @staticmethod
+    def labels_to_masks(labels: np.ndarray) -> np.ndarray:
+        """Converts a 2D integer label array to a 3D boolean mask array.
+        
+        Args:
+            labels: (H, W) integer array where each unique value corresponds to a player
+        
+        Returns:
+            masks: (n_players, H, W) boolean array.
+        """
+        n_players = np.unique(labels)
+        return (labels == n_players.reshape(-1, 1, 1))
 
     def get_masks(self, image: np.ndarray) -> np.ndarray:
         """Return the pre-computed masks, validating against the image dimensions.
@@ -191,38 +211,26 @@ class GridStrategy(CNNPlayerStrategy):
       
 
 class SuperpixelStrategy(CNNPlayerStrategy):
-    """Partition the image into superpixels.
+    """Splits the image into superpixels using SLIC.
 
-    Players are computed either by running the SLIC (Simple Linear Iterative
-    Clustering) algorithm from ``scikit-image``, or by accepting a
-    user-provided segmentation mask.
+    Uses the SLIC or SLICO algorithm from :mod:`skimage.segmentation` to
+    partition the image into compact, perceptually uniform regions. The
+    algorithm may not return exactly ``n_segments`` superpixels; the
+    implementation iterates up to 20 times with an increasing segment count
+    to ensure at least ``n_segments`` are returned where possible.
 
-    **SLIC behaviour**: SLIC is not guaranteed to produce exactly that many superpixels as passed by ``n_segments``. If fewer than ``n_segments``
-    superpixels are produced, the strategy retries with a progressively larger
-    request (up to 20 additional attempts) before accepting the result.
-    :attr:`n_players` always reflects the *actual* number of superpixels
-    found after the algorithm ran.
+    To use a pre-computed segmentation, convert it first with
+    :func:`labels_to_masks` and pass the result to
+    :class:`CustomPlayerStrategy`.
 
     Args:
         n_segments: Preferred number of superpixels to request from SLIC.
-            Required when no ``mask`` is provided; ignored once a custom mask
-            is set.
         algorithm: SLIC variant to use.
-
             - ``"slico"`` (default): SLIC-zero — enforces equal-size
               superpixels regardless of image texture, producing a more
               uniform grid.
             - ``"slic"``: standard SLIC — segment size follows image content,
               which can yield very irregular segments in textured regions.
-
-        mask: Optional precomputed segmentation. Accepted formats:
-
-            - **2-D integer array** ``(H, W)``: each unique integer value
-              identifies one superpixel. Labels need not be contiguous or
-              start at 0.
-            - **3-D boolean array** ``(n_players, H, W)``: ``mask[i]`` is
-              the binary pixel mask for player ``i``. Must be non-overlapping
-              (each pixel belongs to at most one player) and cover every pixel.
 
     Raises:
         ValueError: If neither ``n_segments`` nor ``mask`` is provided.
@@ -236,102 +244,30 @@ class SuperpixelStrategy(CNNPlayerStrategy):
 
     def __init__(
         self,
-        n_segments: int | None = None,
-        algorithm: Literal["slic", "slico"] = "slico",
-        mask: Optional[np.ndarray] = None,
+        n_segments: int,
+        algorithm: Literal["slic", "slico"] = "slico"
     ):
-    
-        if mask is None and n_segments is None:
-            raise ValueError("Either n_segments or mask must be provided.")
+        if n_segments < 1:
+            raise ValueError("n_segments must be a positive integer.")
         
         self.n_segments = n_segments
         self._algorithm = algorithm
-        self._custom_mask: Optional[np.ndarray] = None
-        self._n_players: int = n_segments or 0
-
-        if mask is not None:
-            self.set_mask(mask)
+        self._n_players: int = n_segments
         
-    @staticmethod
-    def _labels_to_masks(labels: np.ndarray) -> np.ndarray:
-        """Converts a 2D integer label array to a 3D boolean mask array.
-        
-        Args:
-            labels: (H, W) integer array.
-        
-        Returns:
-            masks: (n_players, H, W) boolean array.
-        """
-        n_players = np.unique(labels)
-        return (labels == n_players.reshape(-1, 1, 1))
-    
-    
-    def set_mask(self, mask: np.ndarray) -> None:
-        """Validate, convert, and store a custom mask.
-
-        Accepts either a 2D integer label array (H, W) or a 3D boolean array
-        (n_players, H, W). Shape compatibility with a specific image is checked
-        in `get_masks` when the image is available.
-
-        Args:
-            mask: 2D integer label array (H, W) or 3D boolean array (n_players, H, W).
-
-        Raises:
-            ValueError: If the mask has an invalid dtype, shape, or contains
-                overlapping regions.
-        """
-        mask = np.asarray(mask)
-
-        if mask.ndim == 2:
-            if not np.issubdtype(mask.dtype, np.integer):
-                raise ValueError("2D mask must contain integer labels.")
-            if mask.size == 0:
-                raise ValueError("Provided 2D mask is empty.")
-            mask = self._labels_to_masks(mask)
-
-        if mask.ndim == 3:
-            mask = mask.astype(bool)
-            if (mask.sum(axis=0) > 1).any():
-                raise ValueError(
-                    "Masks are overlapping — each pixel must belong to exactly one player."
-                )
-            if not mask.any(axis=0).all():
-                raise ValueError("Not all pixels are covered by at least one player.")
-        else:
-            raise ValueError(
-                "mask must be either a 2D label array (H, W) or a "
-                "3D boolean array (n_players, H, W)."
-            ) 
-            
-        self._custom_mask = mask
-        self.n_segments = mask.shape[0] 
-        self._n_players = self.n_segments  
-    
-    
+       
     def get_masks(self, image: np.ndarray) -> np.ndarray:
         """Run SLIC and return the superpixel mask.
         
-        If a user-provided mask was supplied, this method
-        validates it against the provided `image`. 
-        Otherwise `slic` is run to compute superpixels. The algorithm may not 
-        return exactly `n_segments` superpixels. The result will not be clipped
-        afterwards, but it is ensured that at least `n_segments` superpixels are
-        returned if possible within a reasonable number of iterations.
+        The algorithm may not return exactly `n_segments` superpixels. 
+        The result will not be clipped afterwards, but it is ensured that at 
+        least `n_segments` superpixels are returned if possible within a 
+        reasonable number of iterations.
 
         Returns:
             A boolean mask array with shape (n_players, H, W) where
             masks[i, y, x] == True iff pixel (y,x) belongs to superpixel i.
 
-        """
-        
-        if self._custom_mask is not None:
-            if self._custom_mask.shape[1:] != image.shape[:2]:
-                raise ValueError(
-                    f"Custom mask shape {self._custom_mask.shape[1:]} does not match "
-                    f"image shape {image.shape[:2]}."
-                )
-            return self._custom_mask
-        
+        """      
         from skimage.segmentation import slic
         
         slic_zero = self._algorithm == "slico"
