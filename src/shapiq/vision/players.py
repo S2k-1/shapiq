@@ -11,6 +11,19 @@ import numpy as np
 from typing import Literal
 from abc import ABC, abstractmethod
 
+def labels_to_masks(labels: np.ndarray) -> np.ndarray:
+    """Converts a 2D integer label array to a 3D boolean mask array.
+    
+    Args:
+        labels: (H, W) integer array where each unique value corresponds to a player
+    
+    Returns:
+        masks: (n_players, H, W) boolean array.
+    """
+    n_players = np.unique(labels)
+    return (labels == n_players.reshape(-1, 1, 1))
+
+
 class PlayerStrategy(ABC):
     """Abstract base class for all player strategies.
     A player strategy encapsulates the rule by which an image is divided into
@@ -81,7 +94,7 @@ class CustomPlayerStrategy(CNNPlayerStrategy):
                     f"Expected a segmentation label map with at least 2 distinct labels, "
                     f"but found only {n_unique} unique value(s). "
                 )
-            masks = self.labels_to_masks(masks)
+            masks = labels_to_masks(masks)
         
         if masks.ndim != 3:
             raise ValueError(
@@ -117,20 +130,7 @@ class CustomPlayerStrategy(CNNPlayerStrategy):
                 "These pixels will stay visible in every coalition and cannot be attributed.",
                 UserWarning,
                 stacklevel=3,
-            )
-
-    @staticmethod
-    def labels_to_masks(labels: np.ndarray) -> np.ndarray:
-        """Converts a 2D integer label array to a 3D boolean mask array.
-        
-        Args:
-            labels: (H, W) integer array where each unique value corresponds to a player
-        
-        Returns:
-            masks: (n_players, H, W) boolean array.
-        """
-        n_players = np.unique(labels)
-        return (labels == n_players.reshape(-1, 1, 1))
+            )  
 
     def get_masks(self, image: np.ndarray) -> np.ndarray:
         """Return the pre-computed masks, validating against the image dimensions.
@@ -159,56 +159,167 @@ class CustomPlayerStrategy(CNNPlayerStrategy):
 
 
 class GridStrategy(CNNPlayerStrategy):
-    """Splits the image into a regular rectangular grid.
+    """Splits the image into a regular rectangular grid of players.
 
-    Divides the image into ``rows x cols`` non-overlapping patches. Patches are
-    sized via integer division, so the rightmost column and bottom row absorb
-    any remainder pixels when the image dimensions are not evenly divisible.
+    The strategy must be initialized implicitly via :meth:`get_masks` 
+    before :attr:`n_players` can be accessed.
+
+    Exactly one of ``patch_size`` or ``grid_shape`` must be provided:
+
+    - ``grid_shape``: fixes the number of tiles; the grid dimensions are set
+    directly and patch sizes are derived from the image shape at fit time.
+    The image is divided using floor division — any remainder pixels are
+    absorbed into the last row and/or column, making the edge patches
+    potentially larger than the interior patches.
+    - ``patch_size``: fixes the pixel size of each patch; the grid dimensions
+    are inferred from the image shape at fit time. Some patches may be 
+    smaller than ``patch_size`` if the image dimensions are not exact multiples.
 
     Args:
-        rows: Number of patch rows. Must be a positive integer.
-        cols: Number of patch columns. Defaults to ``rows`` (square grid).
-            Must be a positive integer.
+        patch_size: ``(patch_height, patch_width)`` or a single int for square
+            patches. The grid shape is inferred from the image.
+        grid_shape: ``(grid_y, grid_x)`` or a single int for a square grid.
+            The patch size is derived from the image.
 
     Raises:
-        ValueError: If ``rows`` or ``cols`` are not positive integers.
+        ValueError: If both or neither of ``patch_size`` and ``grid_shape``
+            are provided.
 
     Example::
 
-        strategy = GridStrategy(rows=3, cols=3)  # 9 players
+        # Fixed grid of 4×4 tiles — edge patches absorb remainder pixels
+        strategy = GridStrategy(grid_shape=4)
+        masks = strategy.get_masks(image)  # (16, H, W)
+
+        # Fixed 32×32 patches — last row/column may be smaller if H or W
+        # is not a multiple of 32
+        strategy = GridStrategy(patch_size=32)
+        masks = strategy.get_masks(image)  # (n_players, H, W)
     """
 
-    def __init__(self, rows: int, cols: int | None = None) -> None:
-        if rows < 1 or (cols is not None and cols < 1):
-            raise ValueError("rows and cols must be positive integers.")
-        self.rows = rows
-        self.cols = cols if cols is not None else rows
+    def __init__(
+        self,
+        patch_size: int | tuple[int, int] | None = None,
+        grid_shape: int | tuple[int, int] | None = None,
+    ) -> None:
+        if (patch_size is None) == (grid_shape is None):
+            raise ValueError("Must provide exactly one of 'patch_size' or 'grid_shape'.")
+
+        self._input_patch_size = patch_size
+        self._input_grid_shape = grid_shape
+        self._mode = "patch" if patch_size is not None else "grid"
+
+        self._is_initialized = False
+        self.h: int | None = None
+        self.w: int | None = None
+        self.grid_y: int | None = None
+        self.grid_x: int | None = None
+
+    def _resolve_grid_shape(self, h: int, w: int) -> tuple[int, int]:
+        """Resolve ``grid_shape`` or ``patch_size`` into ``(grid_y, grid_x)``.
+
+        Args:
+            h: Image height in pixels.
+            w: Image width in pixels.
+
+        Returns:
+            Tuple ``(grid_y, grid_x)`` — the number of tiles along each axis.
+
+        Raises:
+            ValueError: If the resolved grid or patch dimensions are invalid
+                given the image shape.
+        """
+        if self._mode == "grid":
+            gy, gx = (
+                (self._input_grid_shape, self._input_grid_shape)
+                if isinstance(self._input_grid_shape, int)
+                else self._input_grid_shape
+            )
+            if gy < 1 or gx < 1:
+                raise ValueError("Grid dimensions must be positive integers.")
+            if gy > h or gx > w:
+                raise ValueError(
+                    f"Grid shape {(gy, gx)} exceeds image shape {(h, w)}. "
+                    "This would result in empty players."
+                )
+            return gy, gx
+
+        else:  # patch mode
+            ph, pw = (
+                (self._input_patch_size, self._input_patch_size)
+                if isinstance(self._input_patch_size, int)
+                else self._input_patch_size
+            )
+            if ph < 1 or pw < 1:
+                raise ValueError("Patch dimensions must be positive integers.")
+            if ph > h or pw > w:
+                raise ValueError(
+                    f"Patch size {(ph, pw)} exceeds image shape {(h, w)}."
+                )
+            return math.ceil(h / ph), math.ceil(w / pw)
+
+    @staticmethod
+    def _build_player_grid(h: int, w: int, gy: int, gx: int) -> np.ndarray:
+        """Build a ``(H, W)`` integer label map for a ``gy × gx`` grid.
+
+        Uses integer floor division so every pixel is assigned exactly one
+        player. Edge patches absorb any remainder pixels.
+
+        Args:
+            h: Image height in pixels.
+            w: Image width in pixels.
+            gy: Number of grid rows.
+            gx: Number of grid columns.
+
+        Returns:
+            Integer numpy array of shape ``(H, W)`` with values in
+            ``[0, gy * gx)``.
+        """
+        row_edges = [r * h // gy for r in range(gy + 1)]
+        col_edges = [c * w // gx for c in range(gx + 1)]
+
+        row_assign = np.repeat(np.arange(gy), np.diff(row_edges))
+        col_assign = np.repeat(np.arange(gx), np.diff(col_edges))
+
+        return row_assign[:, None] * gx + col_assign[None, :]
 
     def get_masks(self, image: np.ndarray) -> np.ndarray:
         """Return per-patch boolean masks of shape ``(n_players, H, W)``.
 
+        Resolves and caches the grid dimensions on the first call using the
+        provided image shape.
+
         Args:
-            image: Input image as a ``(H, W, C)`` numpy array. Used only for
-                spatial dimensions.
+            image: Input image as a ``(H, W[, C])`` numpy array.
 
         Returns:
-            Boolean numpy array of shape ``(n_players, H, W)``.
+            Boolean numpy array of shape ``(n_players, H, W)`` where
+            ``masks[i, y, x] == True`` iff pixel ``(y, x)`` belongs to
+            player ``i``.
         """
-        H, W = image.shape[:2]
-        row_edges = [r * H // self.rows for r in range(self.rows + 1)]
-        col_edges = [c * W // self.cols for c in range(self.cols + 1)]
+        h, w = image.shape[:2]
+        gy, gx = self._resolve_grid_shape(h, w)
+        player_grid = self._build_player_grid(h, w, gy, gx)
 
-        row_assign = np.repeat(np.arange(self.rows), np.diff(row_edges))  # (H,)
-        col_assign = np.repeat(np.arange(self.cols), np.diff(col_edges))  # (W,)
+        self.h, self.w = h, w
+        self.grid_y, self.grid_x = gy, gx
+        self._is_initialized = True
 
-        player_grid = row_assign[:, None] * self.cols + col_assign[None, :]  # (H, W)
-        return player_grid == np.arange(self.n_players)[:, None, None]       # (n_players, H, W)
+        return player_grid == np.arange(gy * gx)[:, None, None]
 
     @property
     def n_players(self) -> int:
-        """Number of grid tiles."""
-        return self.rows * self.cols
-      
+        """Number of grid tiles.
+
+        Raises:
+            RuntimeError: If called before :meth:`get_masks`.
+        """
+        if not self._is_initialized:
+            raise RuntimeError(
+                "Call `get_masks(image)` first to compute the number of players."
+            )
+        return self.grid_y * self.grid_x
+    
 
 class SuperpixelStrategy(CNNPlayerStrategy):
     """Splits the image into superpixels using SLIC.
@@ -285,7 +396,7 @@ class SuperpixelStrategy(CNNPlayerStrategy):
         # Reset n_players to the actual number of superpixels found (which may be > n_segments)
         self._n_players = n_superpixels
 
-        return self._labels_to_masks(superpixels)
+        return labels_to_masks(superpixels)
     
     
     @property
