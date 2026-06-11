@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import numpy as np
-from sklearn.preprocessing import normalize
 
 from shapiq.imputer.base import Imputer
 
