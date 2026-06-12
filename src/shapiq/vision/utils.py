@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-import numpy as np
 from typing import TYPE_CHECKING
+
+import numpy as np
 
 if TYPE_CHECKING:
     import torch
     from PIL.Image import Image as PILImage
-    
+
     ImageLike = np.ndarray | torch.Tensor | PILImage
 else:
     ImageLike = np.ndarray
@@ -45,7 +46,7 @@ def as_hwc_array(image: ImageLike) -> np.ndarray:
             f"Expected a single image with 2 or 3 dimensions, got {ndim}-D input. "
             "Pass one image at a time — batched arrays are not supported."
         )
-    
+
     if isinstance(image, np.ndarray):
         arr = np.asarray(image)
     else:
@@ -179,6 +180,7 @@ def tensor_to_numpy(tensor: torch.Tensor) -> np.ndarray:
 # Private helpers
 # ---------------------------------------------------------------------------
 
+
 def _try_convert_pil_image(image: object) -> np.ndarray | None:
     """Attempt to convert a PIL image to an RGB numpy array.
 
@@ -229,7 +231,7 @@ def _try_convert_torch_tensor(image: object) -> np.ndarray | None:
         return None
 
     tensor = image.detach().cpu()
-    
+
     if tensor.ndim >= 4:
         raise ValueError(
             f"Expected a single image tensor with 2 or 3 dimensions, got shape {tuple(tensor.shape)}. "
