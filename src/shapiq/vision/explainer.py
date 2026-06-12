@@ -83,22 +83,23 @@ class ImageExplainer(Explainer):
         **kwargs: Any,
     ) -> None:
         """Initialize an image explainer with a model architecture and imputer."""
+        if isinstance(imputer, ImageImputer):
+            _imputer: ImageImputer = imputer
+        else:
+            _imputer: ImageImputer = ImageImputer(
+                model_architecture=model_architecture,
+                image=data,
+                batch_size=batch_size,
+            )
+
         super().__init__(
-            model=model_architecture.model,
+            model=_imputer.value_function,
             data=None,
             index=index,
             max_order=max_order,
             **kwargs,
         )
-
-        if isinstance(imputer, ImageImputer):
-            self._imputer: ImageImputer = imputer
-        else:
-            self._imputer: ImageImputer = ImageImputer(
-                model_architecture=model_architecture,
-                image=data,
-                batch_size=batch_size,
-            )
+        self._imputer: ImageImputer = _imputer
 
         self._n_features: int = self._imputer.n_features
 
