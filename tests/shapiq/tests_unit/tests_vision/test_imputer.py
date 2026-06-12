@@ -161,6 +161,34 @@ class TestImageImputerInputFormats:
         )
         values = imputer.value_function(np.array([[True, True, True]]))
         assert values[0] == pytest.approx(image.sum())
+        
+
+class TestImageImputerFit:
+    def test_fit_returns_self(self, tiny_image, two_player_masks) -> None:
+        """fit() returns the imputer instance for chaining."""
+        imputer = _build_imputer(tiny_image, two_player_masks, ZeroMasking())
+        result = imputer.fit(tiny_image)
+        assert result is imputer
+
+    def test_fit_replaces_image_and_updates_value_function(
+        self, tiny_image, two_player_masks
+    ) -> None:
+        """After fit(), value_function reflects the new image, not the old one."""
+        imputer = _build_imputer(tiny_image, two_player_masks, ZeroMasking(), normalize=False)
+        new_image = np.ones_like(tiny_image) * 10.0
+        imputer.fit(new_image)
+        full_coalition = np.array([[True, True]])
+        value = imputer.value_function(full_coalition)[0]
+        assert value == pytest.approx(new_image.sum())
+        assert value != pytest.approx(tiny_image.sum())
+
+    def test_fit_resets_empty_prediction(self, tiny_image, two_player_masks) -> None:
+        """fit() resets the empty prediction baseline to match the new image."""
+        imputer = _build_imputer(tiny_image, two_player_masks, MeanColorMasking(), normalize=False)
+        old_empty = imputer.empty_prediction
+        new_image = np.ones_like(tiny_image) * 99.0
+        imputer.fit(new_image)
+        assert imputer.empty_prediction != pytest.approx(old_empty)
 
 
 class TestImageImputerTransformer:
