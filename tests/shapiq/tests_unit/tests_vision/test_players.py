@@ -198,7 +198,7 @@ class TestGridStrategy:
             GridStrategy()
 
     def test_grid_shape_int_produces_square_grid(self) -> None:
-        """Scalar grid_shape=4: 4×4 = 16 players, masks cover every pixel."""
+        """Scalar grid_shape=4: 4x4 = 16 players, masks cover every pixel."""
         strategy = GridStrategy(grid_shape=4)
         image = np.zeros((8, 8, 3))
         masks = strategy.get_masks(image)
@@ -227,19 +227,19 @@ class TestGridStrategy:
         strategy = GridStrategy(patch_size=4)
         image = np.zeros((8, 8, 3))
         masks = strategy.get_masks(image)
-        assert masks.shape == (4, 8, 8)  # 2×2 grid of 4×4 patches
+        assert masks.shape == (4, 8, 8)  # 2x2 grid of 4x4 patches
         assert (masks.sum(axis=0) == 1).all()
 
     def test_patch_size_tuple(self) -> None:
         """Tuple patch_size=(2, 4):grid_y=4, grid_x=2 for an (8,8) image."""
         strategy = GridStrategy(patch_size=(2, 4))
         masks = strategy.get_masks(np.zeros((8, 8, 3)))
-        assert masks.shape == (8, 8, 8)  # 4 rows × 2 cols
+        assert masks.shape == (8, 8, 8)  # 4 rows x 2 cols
 
     def test_patch_size_non_multiple_edge_patches_smaller(self) -> None:
         """Image dims not multiples of patch_size: last patches are smaller but full coverage holds."""
         strategy = GridStrategy(patch_size=3)
-        image = np.zeros((10, 10, 3))  # ceil(10/3)=4: 4×4=16 players
+        image = np.zeros((10, 10, 3))  # ceil(10/3)=4: 4x4=16 players
         masks = strategy.get_masks(image)
         assert masks.shape[1:] == (10, 10)
         assert (masks.sum(axis=0) == 1).all()

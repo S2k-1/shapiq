@@ -1,3 +1,5 @@
+"""Utility functions for image conversion and device handling."""
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -42,10 +44,11 @@ def as_hwc_array(image: ImageLike) -> np.ndarray:
         len(getattr(image, "shape", ())) if hasattr(image, "shape") else None
     )
     if ndim is not None and ndim >= 4:
-        raise ValueError(
+        msg = (
             f"Expected a single image with 2 or 3 dimensions, got {ndim}-D input. "
             "Pass one image at a time — batched arrays are not supported."
         )
+        raise ValueError(msg)
 
     if isinstance(image, np.ndarray):
         arr = np.asarray(image)
@@ -72,18 +75,18 @@ def as_hwc_array(image: ImageLike) -> np.ndarray:
         raise TypeError(msg)
 
     if arr.ndim >= 4:
-        raise ValueError(
+        msg = (
             f"Expected a single image with 2 or 3 dimensions, got shape {arr.shape}. "
             "Pass one image at a time — batched arrays are not supported."
         )
+        raise ValueError(msg)
 
     if arr.ndim == 2:
         arr = arr[..., np.newaxis]
 
     if arr.ndim != 3:
-        raise ValueError(
-            f"Expected image with 2 or 3 dimensions after conversion, got shape {arr.shape}"
-        )
+        msg = f"Expected image with 2 or 3 dimensions after conversion, got shape {arr.shape}"
+        raise ValueError(msg)
 
     return arr
 
@@ -115,10 +118,7 @@ def to_tensor_chw(
     import torch
 
     arr = as_hwc_array(image)  # (H, W, C) numpy
-    if arr.dtype == np.uint8:
-        arr = arr.astype(np.float32) / 255.0
-    else:
-        arr = arr.astype(np.float32)
+    arr = arr.astype(np.float32) / 255.0 if arr.dtype == np.uint8 else arr.astype(np.float32)
 
     tensor = torch.from_numpy(arr).permute(2, 0, 1)  # (C, H, W)
 
@@ -233,10 +233,11 @@ def _try_convert_torch_tensor(image: object) -> np.ndarray | None:
     tensor = image.detach().cpu()
 
     if tensor.ndim >= 4:
-        raise ValueError(
+        msg = (
             f"Expected a single image tensor with 2 or 3 dimensions, got shape {tuple(tensor.shape)}. "
             "Pass one image at a time — batched tensors are not supported."
         )
+        raise ValueError(msg)
     if tensor.ndim == 2:
         return tensor.numpy()[..., np.newaxis]
     if tensor.ndim == 3:
@@ -257,6 +258,5 @@ def _try_convert_torch_tensor(image: object) -> np.ndarray | None:
                 tensor = tensor.permute(1, 2, 0)
         return tensor.numpy()
 
-    raise ValueError(
-        f"Expected PyTorch tensor with 2 or 3 dimensions, got shape {tuple(tensor.shape)}"
-    )
+    msg = f"Expected PyTorch tensor with 2 or 3 dimensions, got shape {tuple(tensor.shape)}"
+    raise ValueError(msg)

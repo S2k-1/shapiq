@@ -1,8 +1,8 @@
-"""Masking strategies for vision models, that define how to replace absent players
-in masked images before forwarding through the model. Masking is applied in pixel
-space for CNNs and token space for ViTs.
+"""Masking strategies for vision models.
 
-Masking requires pytorch to be installed.
+Defines how to replace absent players in masked images before forwarding
+through the model. Masking is applied in pixel space for CNNs and token
+space for ViTs. Requires PyTorch to be installed.
 """
 
 from __future__ import annotations
@@ -12,6 +12,8 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     import torch
+
+    from shapiq.typing import Model
 
 
 class CNNMaskingStrategy(ABC):
@@ -76,6 +78,7 @@ class MeanColorMasking(CNNMaskingStrategy):
     def apply(
         self, image: torch.Tensor, player_masks: torch.Tensor, coalitions: torch.Tensor
     ) -> torch.Tensor:
+        """Apply mean color masking to absent player regions."""
         import torch
 
         pixel_mask = self._build_pixel_mask(player_masks, coalitions)  # (n_coalitions, H, W)
@@ -95,12 +98,14 @@ class ZeroMasking(CNNMaskingStrategy):
         value: The fill value used for masked pixels. Defaults to ``0.0``.
     """
 
-    def __init__(self, value: float = 0.0):
+    def __init__(self, value: float = 0.0) -> None:
+        """Initialize the zero masking strategy with a specified fill value."""
         self.value = value
 
     def apply(
         self, image: torch.Tensor, player_masks: torch.Tensor, coalitions: torch.Tensor
     ) -> torch.Tensor:
+        """Apply zero (or constant) masking to absent player regions."""
         import torch
 
         pixel_mask = self._build_pixel_mask(player_masks, coalitions)  # (n_coalitions, H, W)
@@ -171,7 +176,7 @@ class TransformerMaskingStrategy(ABC):
         player_to_token = torch.zeros(
             (n_players, n_tokens), dtype=torch.bool, device=coalitions.device
         )
-        player_to_token.scatter_(1, token_masks, True)  # (n_players, n_tokens)
+        player_to_token.scatter_(dim=1, index=token_masks, value=True)  # (n_players, n_tokens)
 
         # A token is visible (False) if at least one present player owns it
         visible = coalitions.float() @ player_to_token.float()  # (n_coalitions, n_tokens)
@@ -186,16 +191,24 @@ class BoolMaskedPosStrategy(TransformerMaskingStrategy):
     """
 
     def apply(self, coalitions: torch.Tensor, token_masks: torch.Tensor) -> torch.Tensor:
+        """Apply boolean masking by converting coalitions to a ``bool_masked_pos`` tensor."""
         return self._to_token_mask(coalitions, token_masks)
 
 
 class MaskTokenStrategy(TransformerMaskingStrategy):
     """Masks tokens by zeroing the mask_token embedding before the forward pass."""
 
-    def __init__(self, model) -> None:
+    def __init__(self, model: Model) -> None:
+        """Initialise with the ViT model whose mask token will be zeroed.
+
+        Args:
+            model: A ViT model with a ``vit.embeddings.mask_token``
+                parameter.
+        """
         self._model = model
 
     def apply(self, coalitions: torch.Tensor, token_masks: torch.Tensor) -> torch.Tensor:
+        """Apply masking by setting the model's mask_token embedding to zero."""
         import torch
 
         self._model.vit.embeddings.mask_token = torch.nn.Parameter(

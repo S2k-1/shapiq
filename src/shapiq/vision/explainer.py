@@ -111,13 +111,20 @@ class ImageExplainer(Explainer):
         )
 
     def explain_function(
-        self, x: np.ndarray | None, *args: Any, **kwargs: Any
+        self,
+        x: np.ndarray | None,
+        *args: Any,  # noqa: ARG002 — required to match base class signature
+        **kwargs: Any,
     ) -> InteractionValues:
         """Explain a single prediction in terms of interaction values.
 
         Args:
             x (np.ndarray | None): Image to be explained. If not passed, the explainer will use the image passed during initialization.
             Accepts PIL Image, numpy array ``(H, W, C)`` or ``(C, H, W)``, or a PyTorch tensor.
+            *args: Unused in this implementation.
+            **kwargs: Optional keyword arguments. Supported keys:
+                - ``budget`` (int): Maximum number of model evaluations.
+                Defaults to ``64``.
 
         Returns:
             InteractionValues: The interaction values of the prediction.

@@ -1,8 +1,8 @@
-"""Player strategies for vision models, that define how to create players from images.
-Players are defined in pixel space for CNNs and token space for ViTs.
-Each strategy returns boolean masks that map each player to its corresponding pixels or tokens.
+"""Player strategies for vision models.
 
-Requires scikit-image for superpixel segmentation, otherwise numpy only.
+Defines how to create players from images. Players are defined in pixel
+space for CNNs and token space for ViTs. Requires scikit-image for
+superpixel segmentation, otherwise numpy only.
 """
 
 from __future__ import annotations
@@ -29,19 +29,16 @@ def labels_to_masks(labels: np.ndarray) -> np.ndarray:
 
 class PlayerStrategy(ABC):
     """Abstract base class for all player strategies.
+
     A player strategy encapsulates the rule by which an image is divided into
     ``n_players`` disjoint regions.
     """
 
     @property
     @abstractmethod
-    def n_players(self) -> int: ...
-
-    """Number of players (image regions) produced by this strategy.
-
-        Returns:
-            int: The number of players.
-    """
+    def n_players(self) -> int:
+        """Number of players (image regions) produced by this strategy."""
+        ...
 
 
 class CNNPlayerStrategy(PlayerStrategy, ABC):
@@ -89,21 +86,22 @@ class CustomPlayerStrategy(CNNPlayerStrategy):
     """
 
     def __init__(self, masks: np.ndarray) -> None:
+        """Initialize the strategy with pre-computed masks."""
         masks = np.asarray(masks)
 
         if masks.ndim == 2 and np.issubdtype(masks.dtype, np.integer):
             n_unique = len(np.unique(masks))
             if n_unique < 2:
-                raise ValueError(
+                msg = (
                     f"Expected a segmentation label map with at least 2 distinct labels, "
                     f"but found only {n_unique} unique value(s). "
                 )
+                raise ValueError(msg)
             masks = labels_to_masks(masks)
 
         if masks.ndim != 3:
-            raise ValueError(
-                f"masks must be a 3-D array of shape (n_players, H, W), got shape {masks.shape}."
-            )
+            msg = f"masks must be a 3-D array of shape (n_players, H, W), got shape {masks.shape}."
+            raise ValueError(msg)
         self._masks = masks.astype(bool)
         self._verify(self._masks)
 
@@ -121,10 +119,11 @@ class CustomPlayerStrategy(CNNPlayerStrategy):
 
         if not masks.any(axis=(1, 2)).all():
             empty = np.flatnonzero(~masks.any(axis=(1, 2))).tolist()
-            raise ValueError(
+            msg = (
                 f"Player mask(s) at index {empty} are entirely empty (all False). "
                 "Each player must cover at least one pixel."
             )
+            raise ValueError(msg)
         uncovered = (~masks.any(axis=0)).sum()
         if uncovered > 0:
             warnings.warn(
@@ -148,15 +147,16 @@ class CustomPlayerStrategy(CNNPlayerStrategy):
             ValueError: If the mask spatial dimensions do not match the image.
         """
         if self._masks.shape[1:] != image.shape[:2]:
-            raise ValueError(
+            msg = (
                 f"Mask spatial dimensions {self._masks.shape[1:]} do not match "
                 f"image dimensions {image.shape[:2]}."
             )
+            raise ValueError(msg)
         return self._masks
 
     @property
     def n_players(self) -> int:
-        """Number of player masks."""
+        """Number of players (image regions) produced by this strategy."""
         return self._masks.shape[0]
 
 
@@ -189,11 +189,11 @@ class GridStrategy(CNNPlayerStrategy):
 
     Example::
 
-        # Fixed grid of 4×4 tiles — edge patches absorb remainder pixels
+        # Fixed grid of 4x4 tiles — edge patches absorb remainder pixels
         strategy = GridStrategy(grid_shape=4)
         masks = strategy.get_masks(image)  # (16, H, W)
 
-        # Fixed 32×32 patches — last row/column may be smaller if H or W
+        # Fixed 32x32 patches — last row/column may be smaller if H or W
         # is not a multiple of 32
         strategy = GridStrategy(patch_size=32)
         masks = strategy.get_masks(image)  # (n_players, H, W)
@@ -204,8 +204,10 @@ class GridStrategy(CNNPlayerStrategy):
         patch_size: int | tuple[int, int] | None = None,
         grid_shape: int | tuple[int, int] | None = None,
     ) -> None:
+        """Initialize the strategy with either a patch size or grid shape."""
         if (patch_size is None) == (grid_shape is None):
-            raise ValueError("Must provide exactly one of 'patch_size' or 'grid_shape'.")
+            msg = "Must provide exactly one of 'patch_size' or 'grid_shape'."
+            raise ValueError(msg)
 
         self._mode = "patch" if patch_size is not None else "grid"
 
@@ -241,12 +243,14 @@ class GridStrategy(CNNPlayerStrategy):
                 else self._input_grid_shape
             )
             if gy < 1 or gx < 1:
-                raise ValueError("Grid dimensions must be positive integers.")
+                msg = "Grid dimensions must be positive integers."
+                raise ValueError(msg)
             if gy > h or gx > w:
-                raise ValueError(
+                msg = (
                     f"Grid shape {(gy, gx)} exceeds image shape {(h, w)}. "
                     "This would result in empty players."
                 )
+                raise ValueError(msg)
             return gy, gx
 
         # patch mode
@@ -256,14 +260,16 @@ class GridStrategy(CNNPlayerStrategy):
             else self._input_patch_size
         )
         if ph < 1 or pw < 1:
-            raise ValueError("Patch dimensions must be positive integers.")
+            msg = "Patch dimensions must be positive integers."
+            raise ValueError(msg)
         if ph > h or pw > w:
-            raise ValueError(f"Patch size {(ph, pw)} exceeds image shape {(h, w)}.")
+            msg = f"Patch size {(ph, pw)} exceeds image shape {(h, w)}."
+            raise ValueError(msg)
         return math.ceil(h / ph), math.ceil(w / pw)
 
     @staticmethod
     def _build_player_grid(h: int, w: int, gy: int, gx: int) -> np.ndarray:
-        """Build a ``(H, W)`` integer label map for a ``gy × gx`` grid.
+        """Build a ``(H, W)`` integer label map for a ``gy x gx`` grid.
 
         Uses integer floor division so every pixel is assigned exactly one
         player. Edge patches absorb any remainder pixels.
@@ -312,13 +318,14 @@ class GridStrategy(CNNPlayerStrategy):
 
     @property
     def n_players(self) -> int:
-        """Number of grid tiles.
+        """Number of players (image regions) produced by this strategy.
 
         Raises:
             RuntimeError: If called before :meth:`get_masks`.
         """
         if not self._is_initialized:
-            raise RuntimeError("Call `get_masks(image)` first to compute the number of players.")
+            msg = "Call `get_masks(image)` first to compute the number of players."
+            raise RuntimeError(msg)
         return self.grid_y * self.grid_x
 
 
@@ -354,9 +361,11 @@ class SuperpixelStrategy(CNNPlayerStrategy):
         16
     """
 
-    def __init__(self, n_segments: int, algorithm: Literal["slic", "slico"] = "slico"):
+    def __init__(self, n_segments: int, algorithm: Literal["slic", "slico"] = "slico") -> None:
+        """Initialize the strategy with the desired number of superpixels and algorithm."""
         if n_segments < 1:
-            raise ValueError("n_segments must be a positive integer.")
+            msg = "n_segments must be a positive integer."
+            raise ValueError(msg)
 
         self.n_segments = n_segments
         self._algorithm = algorithm
@@ -398,6 +407,7 @@ class SuperpixelStrategy(CNNPlayerStrategy):
 
     @property
     def n_players(self) -> int:
+        """Number of players (image regions) produced by this strategy."""
         return self._n_players
 
 
@@ -434,12 +444,15 @@ class PatchStrategy(TransformerPlayerStrategy):
     by masking strategies to build bool_masked_pos tensors.
     """
 
-    def __init__(self, grid_size: int, n_players: int):
+    def __init__(self, grid_size: int, n_players: int) -> None:
+        """Initialize the strategy with the grid size and number of players."""
         side = int(math.sqrt(n_players))
         if side * side != n_players:
-            raise ValueError("n_players must be a perfect square.")
+            msg = "n_players must be a perfect square."
+            raise ValueError(msg)
         if grid_size % side != 0:
-            raise ValueError("grid_size must be divisible by sqrt(n_players).")
+            msg = "grid_size must be divisible by sqrt(n_players)."
+            raise ValueError(msg)
         self.grid_size = grid_size
         self.patch_size = grid_size // side
         self.side = side
@@ -497,4 +510,5 @@ class PatchStrategy(TransformerPlayerStrategy):
 
     @property
     def n_players(self) -> int:
+        """Number of players (image regions) produced by this strategy."""
         return self._n_players
