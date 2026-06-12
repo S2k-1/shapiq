@@ -1,11 +1,17 @@
+"""Imputer for vision models."""
+
 from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 from shapiq.imputer.base import Imputer
 
-from .architecture import ModelArchitectureStrategy
 from .utils import ImageLike, as_hwc_array, tensor_to_numpy
+
+if TYPE_CHECKING:
+    from .architecture import ModelArchitectureStrategy
 
 
 class ImageImputer(Imputer):
@@ -19,16 +25,29 @@ class ImageImputer(Imputer):
         self,
         model_architecture: ModelArchitectureStrategy,
         image: ImageLike,
+        *,
         normalize: bool = True,
         batch_size: int = 32,
-    ):
+    ) -> None:
+        """Initialise the imputer for a specific image and model architecture.
+
+        Args:
+            model_architecture: Architecture that encapsulates the
+                model, player definition, and masking strategy.
+            image: The image to explain. Accepts a PIL Image, numpy array
+                ``(H, W, C)`` or ``(C, H, W)``, or a PyTorch tensor.
+            normalize: If ``True``, the empty-coalition prediction is used as
+                the normalization baseline for interaction values.
+            batch_size: Maximum number of coalitions to evaluate in a single
+                model forward pass.
+        """
         self.architecture = model_architecture
         self._batch_size = batch_size
         self._normalize = normalize
 
         self._image: np.ndarray = as_hwc_array(image)
         self.architecture.prepare(self._image)
-        self.n_features = self.architecture._player_strategy.n_players
+        self.n_features = self.architecture.n_players
 
         dummy_data = np.zeros((1, self.n_features))
         super().__init__(model=model_architecture.model, data=dummy_data)
@@ -52,7 +71,7 @@ class ImageImputer(Imputer):
         """
         self._image = as_hwc_array(x)
         self.architecture.prepare(self._image)
-        self.n_features = self.architecture._player_strategy.n_players
+        self.n_features = self.architecture.n_players
 
         self._x = np.zeros((1, self.n_features), dtype=bool)  # dummy data to satisfy base class
 
@@ -109,8 +128,6 @@ class ImageImputer(Imputer):
     @property
     def image(self) -> np.ndarray:
         """Returns the current explanation image as an HWC numpy array."""
-        if self._image is None:
-            raise AttributeError("The imputer has not been fitted to an image yet.")
         return self._image.copy()
 
     @property

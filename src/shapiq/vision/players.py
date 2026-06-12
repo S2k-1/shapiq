@@ -120,7 +120,7 @@ class CustomPlayerStrategy(CNNPlayerStrategy):
         import warnings
 
         if not masks.any(axis=(1, 2)).all():
-            empty = (~masks.any(axis=(1, 2))).nonzero()[0].tolist()
+            empty = np.flatnonzero(~masks.any(axis=(1, 2))).tolist()
             raise ValueError(
                 f"Player mask(s) at index {empty} are entirely empty (all False). "
                 "Each player must cover at least one pixel."
@@ -207,15 +207,18 @@ class GridStrategy(CNNPlayerStrategy):
         if (patch_size is None) == (grid_shape is None):
             raise ValueError("Must provide exactly one of 'patch_size' or 'grid_shape'.")
 
-        self._input_patch_size = patch_size
-        self._input_grid_shape = grid_shape
         self._mode = "patch" if patch_size is not None else "grid"
 
+        if patch_size is not None:
+            self._input_patch_size: int | tuple[int, int] = patch_size
+        if grid_shape is not None:
+            self._input_grid_shape: int | tuple[int, int] = grid_shape
+
         self._is_initialized = False
-        self.h: int | None = None
-        self.w: int | None = None
-        self.grid_y: int | None = None
-        self.grid_x: int | None = None
+        self.h: int
+        self.w: int
+        self.grid_y: int
+        self.grid_x: int
 
     def _resolve_grid_shape(self, h: int, w: int) -> tuple[int, int]:
         """Resolve ``grid_shape`` or ``patch_size`` into ``(grid_y, grid_x)``.
@@ -407,6 +410,18 @@ class TransformerPlayerStrategy(PlayerStrategy, ABC):
 
         Returns:
             Integer numpy array of shape ``(n_players, tokens_per_player)``
+        """
+        ...
+
+    @abstractmethod
+    def get_pixel_masks(self, image: np.ndarray) -> np.ndarray:
+        """Return pixel-space boolean masks for visualization.
+
+        Args:
+            image: Input image as a ``(H, W, C)`` numpy array.
+
+        Returns:
+            Boolean numpy array of shape ``(n_players, H, W)``.
         """
         ...
 
