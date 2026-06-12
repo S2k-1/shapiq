@@ -75,7 +75,7 @@ class TestImageExplainer:
             random_state=0,
         )
         assert explainer._imputer is imputer
-        assert explainer._imputer.batch_size == 8
+        assert explainer._imputer._batch_size == 8
 
     def test_explainer_sets_empty_interaction_for_k_sii(
         self, tiny_image, two_player_masks
@@ -89,12 +89,12 @@ class TestImageExplainer:
         result = explainer.explain_function(tiny_image, budget=16)
         assert result[()] == pytest.approx(explainer.baseline_value)
 
-    def test_explain_function_uses_constructor_image_not_argument(
+    def test_explain_function_uses_argument_x(
         self, two_player_masks
     ) -> None:
-        """``explain_function(x)`` does not re-bind the imputer to ``x`` (current API)."""
         image_a = np.full((4, 4, 3), 200.0)
         image_b = np.zeros((4, 4, 3))
+
         explainer = ImageExplainer(
             model_architecture=_build_arch(two_player_masks),
             data=image_a,
@@ -102,9 +102,9 @@ class TestImageExplainer:
             max_order=2,
             random_state=0,
         )
-        result_with_a = explainer.explain_function(image_a, budget=32)
+
+        # Calling with image_b should give the same result as constructing on image_b
         result_with_b = explainer.explain_function(image_b, budget=32)
-        np.testing.assert_allclose(result_with_a.values, result_with_b.values)
 
         explainer_on_b = ImageExplainer(
             model_architecture=_build_arch(two_player_masks),
@@ -114,7 +114,12 @@ class TestImageExplainer:
             random_state=0,
         )
         native_b = explainer_on_b.explain_function(image_b, budget=32)
-        assert not np.allclose(result_with_a.values, native_b.values)
+
+        np.testing.assert_allclose(result_with_b.values, native_b.values)
+
+        # Sanity check: image_a and image_b produce different results
+        result_with_a = explainer.explain_function(image_a, budget=32)
+        assert not np.allclose(result_with_a.values, result_with_b.values)
 
 
 class TestImageExplainerTransformer:
