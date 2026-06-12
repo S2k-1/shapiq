@@ -1,21 +1,33 @@
 """Vision-based explanation methods for image models."""
 
-from .architecture import ModelArchitectureStrategy, CNNArchitecture, TransformerArchitecture
+from .architecture import (
+    CLIPArchitecture,
+    CNNArchitecture,
+    ConvNeXtArchitecture,
+    CustomViTArchitecture,
+    DINOv2Architecture,
+    HuggingFacePixelArchitecture,
+    LayerMaskedCNNArchitecture,
+    ModelArchitectureStrategy,
+    TransformerArchitecture,
+)
 from .imputer import ImageImputer
 from .masking import (
     BoolMaskedPosStrategy,
-    TransformerMaskingStrategy,
+    CNNMaskingStrategy,
+    LayerMasking,
+    ManifoldMaskingStrategy,
     MaskTokenStrategy,
     MeanColorMasking,
-    CNNMaskingStrategy,
+    TransformerMaskingStrategy,
     ZeroMasking,
 )
 from .players import (
-    TransformerPlayerStrategy,
-    PatchStrategy,
     CNNPlayerStrategy,
+    PatchStrategy,
     PlayerStrategy,
     SuperpixelStrategy,
+    TransformerPlayerStrategy,
 )
 
 __all__ = [
@@ -23,6 +35,12 @@ __all__ = [
     "ModelArchitectureStrategy",
     "CNNArchitecture",
     "TransformerArchitecture",
+    "HuggingFacePixelArchitecture",
+    "ConvNeXtArchitecture",
+    "DINOv2Architecture",
+    "CLIPArchitecture",
+    "LayerMaskedCNNArchitecture",
+    "CustomViTArchitecture",
     # Imputer
     "ImageImputer",
     # Masking
@@ -32,6 +50,8 @@ __all__ = [
     "ZeroMasking",
     "BoolMaskedPosStrategy",
     "MaskTokenStrategy",
+    "ManifoldMaskingStrategy",
+    "LayerMasking",
     # Players
     "PlayerStrategy",
     "CNNPlayerStrategy",
