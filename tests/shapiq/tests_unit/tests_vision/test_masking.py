@@ -19,6 +19,8 @@ import torch
 from shapiq.vision.masking import (
     BoolMaskedPosStrategy,
     CNNMaskingStrategy,
+    LayerMasking,
+    ManifoldMaskingStrategy,
     MaskTokenStrategy,
     MeanColorMasking,
     TransformerMaskingStrategy,
@@ -202,3 +204,43 @@ class TestMaskTokenStrategy:
         coalitions = torch.tensor([[True, True, True, True]])
         strategy.apply(coalitions, token_masks)
         assert torch.allclose(model.vit.embeddings.mask_token.data, torch.zeros(1, 1, 4))
+
+
+class _HookableCNN(torch.nn.Module):
+    """Small CNN with a ``layer2`` submodule for hook-based masking tests."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.conv1 = torch.nn.Conv2d(3, 2, 3, padding=1)
+        self.layer2 = torch.nn.Conv2d(2, 2, 3, padding=1)
+        self.fc = torch.nn.Linear(2, 2)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = torch.relu(self.conv1(x))
+        x = self.layer2(x)
+        x = x.mean(dim=(2, 3))
+        return self.fc(x)
+
+
+class TestLayerMasking:
+    def test_is_manifold_masking_strategy(self) -> None:
+        assert isinstance(LayerMasking(), ManifoldMaskingStrategy)
+
+    def test_full_coalition_differs_from_single_player(self, half_masks: torch.Tensor) -> None:
+        model = _HookableCNN().eval()
+        image = torch.ones(3, 4, 4)
+        strategy = LayerMasking(layer_name="layer2")
+        coalitions = torch.tensor([[True, False], [False, True], [True, True]])
+        out = strategy.evaluate(model, image, half_masks, coalitions, class_id=0)
+        assert out.shape == (3,)
+        assert torch.isfinite(out).all()
+        assert (out >= 0.0).all() and (out <= 1.0).all()
+        assert out[0] != out[1]
+
+    def test_single_player_coalitions_differ(self, half_masks: torch.Tensor) -> None:
+        model = _HookableCNN().eval()
+        image = torch.rand(3, 4, 4)
+        strategy = LayerMasking(layer_name="layer2")
+        coalitions = torch.tensor([[True, False], [False, True]])
+        out = strategy.evaluate(model, image, half_masks, coalitions, class_id=0)
+        assert out[0] != out[1]

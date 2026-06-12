@@ -1,6 +1,6 @@
 """Masking strategies for vision models, that define how to replace absent players
-in masked images before forwarding through the model. Masking is applied in pixel 
-space for CNNs and token space for ViTs.  
+in masked images before forwarding through the model. Masking is applied in pixel
+space for CNNs and token space for ViTs.
 
 Masking requires pytorch to be installed.
 """
@@ -8,11 +8,13 @@ Masking requires pytorch to be installed.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     import torch
+
 
 class CNNMaskingStrategy(ABC):
     """Base class for pixel-space masking strategies used with CNN models.
@@ -21,9 +23,11 @@ class CNNMaskingStrategy(ABC):
     a coalition matrix, and return a batch of masked images ready for a
     single forward pass through the model.
     """
-    
+
     @abstractmethod
-    def apply(self, image: torch.Tensor, player_masks: torch.Tensor, coalitions: torch.BoolTensor) -> torch.Tensor:
+    def apply(
+        self, image: torch.Tensor, player_masks: torch.Tensor, coalitions: torch.BoolTensor
+    ) -> torch.Tensor:
         """Apply masking to produce a batch of masked images.
 
         Args:
@@ -55,13 +59,14 @@ class CNNMaskingStrategy(ABC):
             means the pixel belongs to an absent player and should be imputed.
         """
         absent_players = ~coalitions  # (n_coalitions, n_players)
-        
+
         n_players, H, W = player_masks.shape
         masks_flat = player_masks.view(n_players, -1).float()  # (n_players, H*W)
 
         # Union pixel masks of all absent players per coalition
         pixel_mask = (absent_players.float() @ masks_flat).bool()  # (n_coalitions, H*W)
-        return pixel_mask.view(-1, H, W)  # (n_coalitions, H, W)                      
+        return pixel_mask.view(-1, H, W)  # (n_coalitions, H, W)
+
 
 class MeanColorMasking(CNNMaskingStrategy):
     """Imputes absent player regions with the per-channel mean color of the original image.
@@ -69,17 +74,21 @@ class MeanColorMasking(CNNMaskingStrategy):
     The mean is computed per channel across all spatial positions of the
     original image and broadcast into the masked regions.
     """
-    
-    def apply(self, image: torch.Tensor, player_masks: torch.Tensor, coalitions: torch.BoolTensor) -> torch.Tensor:
+
+    def apply(
+        self, image: torch.Tensor, player_masks: torch.Tensor, coalitions: torch.BoolTensor
+    ) -> torch.Tensor:
         import torch
+
         pixel_mask = self._build_pixel_mask(player_masks, coalitions)  # (n_coalitions, H, W)
         mean_color = image.mean(dim=(1, 2))  # (C,)
 
         return torch.where(
-            pixel_mask.unsqueeze(1),       # (n_coalitions, 1, H, W)
+            pixel_mask.unsqueeze(1),  # (n_coalitions, 1, H, W)
             mean_color[None, :, None, None],  # (1, C, 1, 1)
-            image.unsqueeze(0)             # (1, C, H, W)
+            image.unsqueeze(0),  # (1, C, H, W)
         )
+
 
 class ZeroMasking(CNNMaskingStrategy):
     """Imputes absent player regions with a constant scalar value.
@@ -87,17 +96,21 @@ class ZeroMasking(CNNMaskingStrategy):
     Args:
         value: The fill value used for masked pixels. Defaults to ``0.0``.
     """
+
     def __init__(self, value: float = 0.0):
         self.value = value
-    
-    def apply(self, image: torch.Tensor, player_masks: torch.Tensor, coalitions: torch.BoolTensor) -> torch.Tensor:        
+
+    def apply(
+        self, image: torch.Tensor, player_masks: torch.Tensor, coalitions: torch.BoolTensor
+    ) -> torch.Tensor:
         import torch
+
         pixel_mask = self._build_pixel_mask(player_masks, coalitions)  # (n_coalitions, H, W)
-        
+
         return torch.where(
-            pixel_mask.unsqueeze(1),   # (n_coalitions, 1, H, W)
+            pixel_mask.unsqueeze(1),  # (n_coalitions, 1, H, W)
             torch.tensor(self.value, dtype=image.dtype, device=image.device),
-            image.unsqueeze(0)         # (1, C, H, W)
+            image.unsqueeze(0),  # (1, C, H, W)
         )
 
 
@@ -113,7 +126,7 @@ class TransformerMaskingStrategy(ABC):
         self,
         coalitions: torch.BoolTensor,
         token_masks: torch.Tensor,
-    ) -> torch.BoolTensor: 
+    ) -> torch.BoolTensor:
         """Convert coalitions to a token-level boolean mask.
 
         Args:
@@ -129,12 +142,12 @@ class TransformerMaskingStrategy(ABC):
             means the token is visible (player present).
         """
         ...
-        
+
     def _to_token_mask(
         self,
-        coalitions: torch.BoolTensor, 
-        token_masks: torch.Tensor, 
-    ) -> torch.BoolTensor:            
+        coalitions: torch.BoolTensor,
+        token_masks: torch.Tensor,
+    ) -> torch.BoolTensor:
         """Convert a coalition tensor to a flat token-level boolean mask.
 
         Tokens belonging to absent players are set to ``True`` (masked);
@@ -157,7 +170,9 @@ class TransformerMaskingStrategy(ABC):
         n_tokens = int(token_masks.max()) + 1
 
         # (n_players, n_tokens): one-hot encoding of which tokens belong to which player
-        player_to_token = torch.zeros((n_players, n_tokens), dtype=torch.bool, device=coalitions.device)
+        player_to_token = torch.zeros(
+            (n_players, n_tokens), dtype=torch.bool, device=coalitions.device
+        )
         player_to_token.scatter_(1, token_masks, True)  # (n_players, n_tokens)
 
         # A token is visible (False) if at least one present player owns it
@@ -184,8 +199,113 @@ class MaskTokenStrategy(TransformerMaskingStrategy):
 
     def apply(self, coalitions: torch.BoolTensor, token_masks: torch.Tensor) -> torch.BoolTensor:
         import torch
-        
+
         self._model.vit.embeddings.mask_token = torch.nn.Parameter(
             torch.zeros(1, 1, self._model.config.hidden_size)
         )
         return self._to_token_mask(coalitions, token_masks)
+
+
+class ManifoldMaskingStrategy(ABC):
+    """Base class for activation-space masking strategies used with CNN models.
+
+    Instead of replacing pixels in the input image, implementations install a
+    forward hook on an intermediate layer and attenuate activations for absent
+    players.
+    """
+
+    @abstractmethod
+    def evaluate(
+        self,
+        model: torch.nn.Module,
+        image: torch.Tensor,
+        player_masks: torch.Tensor,
+        coalitions: torch.BoolTensor,
+        class_id: int,
+    ) -> torch.Tensor:
+        """Return class probabilities for each coalition.
+
+        Args:
+            model: A raw ``torch.nn.Module``.
+            image: Preprocessed image as a ``(C, H, W)`` tensor.
+            player_masks: Boolean tensor of shape ``(n_players, H, W)``.
+            coalitions: Boolean tensor of shape ``(n_coalitions, n_players)``.
+            class_id: Class index whose softmax probability is returned.
+
+        Returns:
+            Float tensor of shape ``(n_coalitions,)``.
+        """
+        ...
+
+
+def _get_submodule(model: torch.nn.Module, name: str) -> torch.nn.Module:
+    """Return a nested submodule by dot-separated attribute path."""
+    module: torch.nn.Module = model
+    for part in name.split("."):
+        module = getattr(module, part)
+    return module
+
+
+def _layer_activation_hook(
+    pixel_mask: torch.Tensor,
+) -> Callable[[torch.nn.Module, tuple[torch.Tensor, ...], torch.Tensor], torch.Tensor]:
+    """Build a forward hook that attenuates activations using ``pixel_mask``."""
+    import torch
+
+    def hook(
+        _module: torch.nn.Module,
+        _inputs: tuple[torch.Tensor, ...],
+        output: torch.Tensor,
+    ) -> torch.Tensor:
+        h, w = output.shape[2], output.shape[3]
+        spatial_mask = torch.nn.functional.interpolate(
+            pixel_mask[None, None], size=(h, w), mode="nearest"
+        )
+        return output * spatial_mask
+
+    return hook
+
+
+class LayerMasking(ManifoldMaskingStrategy):
+    """Mask intermediate CNN activations via a forward hook.
+
+    A hook on ``layer_name`` multiplies the layer output by a spatial mask
+    derived from the coalition. Absent players zero out their pixel regions
+    (downsampled to the activation map resolution).
+
+    Args:
+        layer_name: Dot-separated attribute path of the layer to hook,
+            e.g. ``"layer2"`` for torchvision ResNet models.
+    """
+
+    def __init__(self, layer_name: str = "layer2") -> None:
+        """Initialize layer masking for the given submodule path."""
+        self.layer_name = layer_name
+
+    def evaluate(
+        self,
+        model: torch.nn.Module,
+        image: torch.Tensor,
+        player_masks: torch.Tensor,
+        coalitions: torch.BoolTensor,
+        class_id: int,
+    ) -> torch.Tensor:
+        """Evaluate class probabilities via a layer forward hook."""
+        import torch
+
+        layer = _get_submodule(model, self.layer_name)
+        batch = image.unsqueeze(0)
+        scores: list[torch.Tensor] = []
+
+        for coalition in coalitions:
+            pixel_visible = (coalition[:, None, None] & player_masks).any(dim=0).float()
+            handle = layer.register_forward_hook(_layer_activation_hook(pixel_visible))
+            try:
+                with torch.no_grad():
+                    logits = model(batch)
+                    probs = torch.softmax(logits, dim=-1)
+                scores.append(probs[0, class_id])
+            finally:
+                handle.remove()
+
+        return torch.stack(scores)

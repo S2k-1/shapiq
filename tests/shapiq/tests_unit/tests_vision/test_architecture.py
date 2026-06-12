@@ -16,7 +16,13 @@ import pytest
 import torch
 
 from shapiq.vision.architecture import (
+    CLIPArchitecture,
     CNNArchitecture,
+    ConvNeXtArchitecture,
+    CustomViTArchitecture,
+    DINOv2Architecture,
+    HuggingFacePixelArchitecture,
+    LayerMaskedCNNArchitecture,
     ModelArchitectureStrategy,
     TransformerArchitecture,
 )
@@ -27,6 +33,7 @@ from shapiq.vision.masking import (
     ZeroMasking,
 )
 from shapiq.vision.players import PatchStrategy, SuperpixelStrategy
+from shapiq.vision.utils import to_tensor_chw
 
 from .conftest import ChannelSumModel, FixedMasksStrategy, MockViT, MockViTProcessor
 
@@ -119,7 +126,9 @@ class TestCNNArchitecture:
         assert arch._player_masks is not None
         assert arch._player_masks.shape[0] == arch._player_strategy.n_players
         assert (arch._player_masks.cpu().numpy().sum(axis=0) == 1).all()
-        out = _to_numpy(arch.value_function(torch.tensor([[True] * arch._player_strategy.n_players])))
+        out = _to_numpy(
+            arch.value_function(torch.tensor([[True] * arch._player_strategy.n_players]))
+        )
         assert np.isfinite(out).all()
 
 
@@ -255,3 +264,205 @@ class TestArchitectureOutputScale:
         )
         assert 0.0 <= vit_full <= 1.0
         assert 0.0 <= vit_empty <= 1.0
+
+
+class MockHFClassifier:
+    """HF-style classifier whose class-0 logit equals the pixel sum."""
+
+    def __call__(self, pixel_values=None, **_):
+        total = pixel_values.double().sum(dim=(1, 2, 3))
+        return SimpleNamespace(logits=torch.stack([total, -total], dim=1))
+
+
+class MockHFProcessor:
+    """Mimics a HF image processor for single images or batches."""
+
+    def __call__(self, images=None, return_tensors="pt", **_):
+        if isinstance(images, list):
+            tensors = [
+                torch.from_numpy(np.asarray(img, dtype=np.float32).transpose(2, 0, 1).copy())
+                for img in images
+            ]
+            return {"pixel_values": torch.stack(tensors)}
+        arr = np.asarray(images, dtype=np.float32)
+        tensor = torch.from_numpy(arr.transpose(2, 0, 1).copy()).unsqueeze(0)
+        return {"pixel_values": tensor}
+
+
+class MockDINOv2:
+    """Backbone returning one feature per image proportional to the pixel sum."""
+
+    def __call__(self, pixel_values=None, **_):
+        total = pixel_values.double().sum(dim=(1, 2, 3))
+        return SimpleNamespace(last_hidden_state=total[:, None, None])
+
+
+class MockCLIP:
+    """Minimal CLIP mock with fixed text features and image-sum logits."""
+
+    def __init__(self) -> None:
+        self.logit_scale = torch.nn.Parameter(torch.tensor(1.0))
+
+    def get_text_features(self, **_):
+        return torch.tensor([[1.0, 0.0], [0.0, 1.0]])
+
+    def get_image_features(self, pixel_values=None, **_):
+        total = pixel_values.double().sum(dim=(1, 2, 3))
+        return torch.stack([total, -total], dim=1)
+
+
+class MockCLIPProcessor(MockHFProcessor):
+    """CLIP processor that also accepts text inputs."""
+
+    def __call__(self, images=None, text=None, return_tensors="pt", *, padding=True, **_):
+        if text is not None:
+            return {"input_ids": torch.zeros((len(text), 4), dtype=torch.long)}
+        return super().__call__(images=images, return_tensors=return_tensors)
+
+
+class TestHuggingFacePixelArchitecture:
+    def test_prepare_auto_detects_class_id(self, tiny_image, two_player_masks) -> None:
+        arch = HuggingFacePixelArchitecture(
+            model=MockHFClassifier(),
+            processor=MockHFProcessor(),
+            player_strategy=FixedMasksStrategy(two_player_masks),
+        )
+        arch.prepare(tiny_image)
+        assert arch._class_id == 0
+
+    def test_value_function_returns_probabilities(self, tiny_image, two_player_masks) -> None:
+        arch = HuggingFacePixelArchitecture(
+            model=MockHFClassifier(),
+            processor=MockHFProcessor(),
+            masking_strategy=ZeroMasking(),
+            player_strategy=FixedMasksStrategy(two_player_masks),
+        )
+        arch.prepare(tiny_image)
+        coalitions = torch.tensor([[False, False], [True, True]])
+        out = _to_numpy(arch.value_function(coalitions))
+        assert out.shape == (2,)
+        assert 0.0 <= out[0] <= 1.0
+        assert 0.0 <= out[1] <= 1.0
+        assert out[1] > out[0]
+
+
+class TestConvNeXtArchitecture:
+    def test_is_huggingface_pixel_subclass(self) -> None:
+        arch = ConvNeXtArchitecture(model=MockHFClassifier(), processor=MockHFProcessor())
+        assert isinstance(arch, HuggingFacePixelArchitecture)
+
+
+class TestDINOv2Architecture:
+    def test_full_coalition_similarity_is_one(self, tiny_image, two_player_masks) -> None:
+        arch = DINOv2Architecture(
+            model=MockDINOv2(),
+            processor=MockHFProcessor(),
+            masking_strategy=ZeroMasking(),
+            player_strategy=FixedMasksStrategy(two_player_masks),
+        )
+        arch.prepare(tiny_image)
+        out = _to_numpy(arch.value_function(torch.tensor([[True, True]])))
+        assert out[0] == pytest.approx(1.0, abs=1e-5)
+
+    def test_empty_coalition_similarity_is_lower(self, tiny_image, two_player_masks) -> None:
+        arch = DINOv2Architecture(
+            model=MockDINOv2(),
+            processor=MockHFProcessor(),
+            masking_strategy=ZeroMasking(),
+            player_strategy=FixedMasksStrategy(two_player_masks),
+        )
+        arch.prepare(tiny_image)
+        full = float(_to_numpy(arch.value_function(torch.tensor([[True, True]])))[0])
+        empty = float(_to_numpy(arch.value_function(torch.tensor([[False, False]])))[0])
+        assert empty < full
+
+
+class TestCLIPArchitecture:
+    def test_value_function_returns_target_prompt_probability(
+        self, tiny_image, two_player_masks
+    ) -> None:
+        arch = CLIPArchitecture(
+            model=MockCLIP(),
+            processor=MockCLIPProcessor(),
+            text_prompts=["a dog", "a cat"],
+            target_prompt_idx=0,
+            masking_strategy=ZeroMasking(),
+            player_strategy=FixedMasksStrategy(two_player_masks),
+        )
+        arch.prepare(tiny_image)
+        coalitions = torch.tensor([[False, False], [True, True]])
+        out = _to_numpy(arch.value_function(coalitions))
+        assert out.shape == (2,)
+        assert 0.0 <= out[0] <= 1.0
+        assert 0.0 <= out[1] <= 1.0
+        assert out[1] > out[0]
+
+
+class _HookableCNN(torch.nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.conv1 = torch.nn.Conv2d(3, 2, 3, padding=1)
+        self.layer2 = torch.nn.Conv2d(2, 2, 3, padding=1)
+        self.fc = torch.nn.Linear(2, 2)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = torch.relu(self.conv1(x))
+        x = self.layer2(x)
+        x = x.mean(dim=(2, 3))
+        return self.fc(x)
+
+
+class TestLayerMaskedCNNArchitecture:
+    def test_value_function_returns_probabilities(self, tiny_image, two_player_masks) -> None:
+        arch = LayerMaskedCNNArchitecture(
+            model=_HookableCNN().eval(),
+            preprocess=to_tensor_chw,
+            class_id=0,
+            player_strategy=FixedMasksStrategy(two_player_masks),
+        )
+        arch.prepare(tiny_image)
+        coalitions = torch.tensor([[True, False], [False, True], [True, True]])
+        out = _to_numpy(arch.value_function(coalitions))
+        assert out.shape == (3,)
+        assert np.isfinite(out).all()
+        assert (out >= 0.0).all() and (out <= 1.0).all()
+        assert out[0] != out[1]
+
+
+class TestCustomViTArchitecture:
+    def test_value_function_shape_and_monotonicity(self, image_24x24) -> None:
+        pixel_values = MockViTProcessor()(images=image_24x24, return_tensors="pt")["pixel_values"]
+        arch = CustomViTArchitecture(
+            model=MockViT(),
+            pixel_values=pixel_values,
+            class_id=0,
+            n_tokens=9,
+            masking_strategy=BoolMaskedPosStrategy(),
+        )
+        arch.prepare(image_24x24)
+        coalitions = torch.tensor(
+            [
+                [False] * 9,
+                [True] + [False] * 8,
+                [True] * 9,
+            ]
+        )
+        out = _to_numpy(arch.value_function(coalitions))
+        assert out.shape == (3,)
+        assert out[0] < out[1] < out[2]
+
+    def test_accepts_numpy_pixel_values(self, image_24x24) -> None:
+        pixel_values = MockViTProcessor()(images=image_24x24, return_tensors="pt")[
+            "pixel_values"
+        ].numpy()
+        arch = CustomViTArchitecture(
+            model=MockViT(),
+            pixel_values=pixel_values,
+            class_id=0,
+            n_tokens=9,
+            masking_strategy=BoolMaskedPosStrategy(),
+        )
+        arch.prepare(image_24x24)
+        out = _to_numpy(arch.value_function(torch.tensor([[True] * 9])))
+        assert out.shape == (1,)
+        assert 0.0 <= out[0] <= 1.0

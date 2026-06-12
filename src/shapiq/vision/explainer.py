@@ -8,9 +8,8 @@ from shapiq.explainer.custom_types import ExplainerIndices
 from shapiq.game_theory.indices import is_empty_value_the_baseline
 from shapiq.interaction_values import InteractionValues
 
-from .imputer import ImageImputer
-
 from .architecture import ModelArchitectureStrategy
+from .imputer import ImageImputer
 from .utils import ImageLike
 
 ImageExplainerIndices = ExplainerIndices
@@ -31,7 +30,9 @@ class ImageExplainer(Explainer):
         batch_size: int = 32,
         **kwargs: Any,
     ) -> None:
-        super().__init__(model=model_architecture.model, data=None, index=index, max_order=max_order)
+        super().__init__(
+            model=model_architecture.model, data=None, index=index, max_order=max_order
+        )
 
         if isinstance(imputer, ImageImputer):
             self._imputer: ImageImputer = imputer
@@ -41,7 +42,7 @@ class ImageExplainer(Explainer):
                 image=data,
                 batch_size=batch_size,
             )
-            
+
         self._n_features: int = self._imputer.n_features
 
         self._approximator = setup_approximator(
@@ -52,14 +53,12 @@ class ImageExplainer(Explainer):
             random_state=random_state,
         )
 
-    def explain_function(
-        self, x: ImageLike| None, *, budget: int = 64
-    ) -> InteractionValues:  
+    def explain_function(self, x: ImageLike | None, *, budget: int = 64) -> InteractionValues:
         if x is not None:
             self._imputer.fit(x)
         interaction_values = self._approximator.approximate(budget=budget, game=self._imputer)
         interaction_values.baseline_value = self.baseline_value
-        
+
         if is_empty_value_the_baseline(interaction_values.index):
             interaction_values[()] = interaction_values.baseline_value
         return interaction_values

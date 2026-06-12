@@ -1,22 +1,20 @@
 from __future__ import annotations
 
 import numpy as np
-from sklearn.preprocessing import normalize
 
 from shapiq.imputer.base import Imputer
 
 from .architecture import ModelArchitectureStrategy
-
-from .utils import as_hwc_array, tensor_to_numpy, ImageLike
+from .utils import ImageLike, as_hwc_array, tensor_to_numpy
 
 
 class ImageImputer(Imputer):
+    """Imputer for images: creates masked versions of the input image based on player coalitions and returns model predictions.
+
+    Requires pytorch to be installed for tensor operations.
+    Converts images to numpy arrays internally, and to tensors for model inference.
     """
-    Imputer for images: creates masked versions of the input image based on player coalitions and returns model predictions.
-    
-    Requires pytorch to be installed for tensor operations. 
-    Converts images to numpy arrays internally, and to tensors for model inference.    
-    """
+
     def __init__(
         self,
         model_architecture: ModelArchitectureStrategy,
@@ -24,7 +22,6 @@ class ImageImputer(Imputer):
         normalize: bool = True,
         batch_size: int = 32,
     ):
-                
         self.architecture = model_architecture
         self._batch_size = batch_size
         self._normalize = normalize
@@ -32,15 +29,14 @@ class ImageImputer(Imputer):
         self._image: np.ndarray = as_hwc_array(image)
         self.architecture.prepare(self._image)
         self.n_features = self.architecture._player_strategy.n_players
-           
+
         dummy_data = np.zeros((1, self.n_features))
         super().__init__(model=model_architecture.model, data=dummy_data)
-        
+
         self.empty_prediction = self.calc_empty_prediction()
         if self._normalize:
             self.normalization_value = self.empty_prediction
-        
-            
+
     def fit(self, x: ImageLike) -> ImageImputer:
         """Fits the imputer to a new image.
 
@@ -57,15 +53,14 @@ class ImageImputer(Imputer):
         self._image = as_hwc_array(x)
         self.architecture.prepare(self._image)
         self.n_features = self.architecture._player_strategy.n_players
-        
-        self._x = np.zeros((1, self.n_features), dtype=bool) # dummy data to satisfy base class
-        
+
+        self._x = np.zeros((1, self.n_features), dtype=bool)  # dummy data to satisfy base class
+
         self.empty_prediction = self.calc_empty_prediction()
         if self._normalize:
             self.normalization_value = self.empty_prediction
-            
+
         return self
-        
 
     def value_function(self, coalitions: np.ndarray) -> np.ndarray:
         """Evaluate the model for a batch of player coalitions.
@@ -81,17 +76,18 @@ class ImageImputer(Imputer):
             Float numpy array of shape ``(n_coalitions,)`` containing the
             scalar model output (logit or probability depending on
             :attr:`architecture`) for each coalition.
-        
+
         """
         import torch
+
         if coalitions.ndim == 1:
             coalitions = coalitions.reshape(1, -1)
-            
+
         n = len(coalitions)
         if n <= self._batch_size:
             coalitions_t = torch.from_numpy(coalitions).bool()
             return tensor_to_numpy(self.architecture.value_function(coalitions_t))
-            
+
         chunks = [
             tensor_to_numpy(
                 self.architecture.value_function(
@@ -109,7 +105,7 @@ class ImageImputer(Imputer):
             The scalar model output when no players are present.
         """
         return float(self.value_function(np.zeros((1, self.n_features), dtype=bool))[0])
-    
+
     @property
     def image(self) -> np.ndarray:
         """Returns the current explanation image as an HWC numpy array."""
