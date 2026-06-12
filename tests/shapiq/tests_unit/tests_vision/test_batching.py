@@ -128,13 +128,13 @@ class TestBatchingPropagation:
             batch_size=4,
             random_state=0,
         )
-        assert explainer._imputer.batch_size == 4
+        assert explainer._imputer._batch_size == 4
 
     def test_default_batch_size_is_int(self, setup_image_and_masks) -> None:
         image, masks = setup_image_and_masks
         imp, _ = _build(image, masks, batch_size=32)
-        assert isinstance(imp.batch_size, int)
-        assert imp.batch_size > 0
+        assert isinstance(imp._batch_size, int)
+        assert imp._batch_size > 0
 
     def test_explainer_end_to_end_with_batching(self, setup_image_and_masks) -> None:
         image, masks = setup_image_and_masks
