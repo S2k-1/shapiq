@@ -14,6 +14,7 @@ from .architecture import (
 from .imputer import ImageImputer
 from .masking import (
     BoolMaskedPosStrategy,
+    BlurMasking,
     CNNMaskingStrategy,
     LayerMasking,
     ManifoldMaskingStrategy,
@@ -48,6 +49,7 @@ __all__ = [
     "TransformerMaskingStrategy",
     "MeanColorMasking",
     "ZeroMasking",
+    "BlurMasking",
     "BoolMaskedPosStrategy",
     "MaskTokenStrategy",
     "ManifoldMaskingStrategy",

@@ -114,6 +114,59 @@ class ZeroMasking(CNNMaskingStrategy):
         )
 
 
+class BlurMasking(CNNMaskingStrategy):
+    """Imputes absent player regions with a Gaussian blur of the original image.
+
+    Absent pixels are replaced with the corresponding pixels from a blurred
+    version of the full image, computed via depthwise Gaussian convolution.
+
+    Args:
+        kernel_size: Odd kernel size for the Gaussian filter. Defaults to ``51``.
+        sigma: Standard deviation of the Gaussian kernel. Defaults to ``15.0``.
+    """
+
+    def __init__(self, kernel_size: int = 51, sigma: float = 15.0) -> None:
+        if kernel_size % 2 == 0:
+            msg = "kernel_size must be odd."
+            raise ValueError(msg)
+        self.kernel_size = kernel_size
+        self.sigma = sigma
+
+    def _gaussian_kernel(self, device: torch.device, dtype: torch.dtype) -> torch.Tensor:
+        import torch
+
+        coords = torch.arange(self.kernel_size, device=device, dtype=dtype) - self.kernel_size // 2
+        g = torch.exp(-(coords**2) / (2 * self.sigma**2))
+        g = g / g.sum()
+        return g[:, None] * g[None, :]
+
+    def _blur(self, image: torch.Tensor) -> torch.Tensor:
+        import torch.nn.functional as F
+
+        channels = image.shape[0]
+        kernel = self._gaussian_kernel(image.device, image.dtype)
+        kernel = kernel.expand(channels, 1, self.kernel_size, self.kernel_size)
+        return F.conv2d(
+            image.unsqueeze(0),
+            kernel,
+            padding=self.kernel_size // 2,
+            groups=channels,
+        ).squeeze(0)
+
+    def apply(
+        self, image: torch.Tensor, player_masks: torch.Tensor, coalitions: torch.BoolTensor
+    ) -> torch.Tensor:
+        import torch
+
+        pixel_mask = self._build_pixel_mask(player_masks, coalitions)
+        blurred = self._blur(image)
+        return torch.where(
+            pixel_mask.unsqueeze(1),
+            blurred.unsqueeze(0),
+            image.unsqueeze(0),
+        )
+
+
 class TransformerMaskingStrategy(ABC):
     """Base class for token-space masking strategies used with ViT models.
 

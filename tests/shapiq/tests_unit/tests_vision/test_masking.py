@@ -1,6 +1,7 @@
 """Tests for masking strategies in ``shapiq.vision.masking``.
 
-The pixel-space maskers (:class:`MeanColorMasking`, :class:`ZeroMasking`)
+The pixel-space maskers (:class:`MeanColorMasking`, :class:`ZeroMasking`,
+:class:`BlurMasking`)
 operate on ``(C, H, W)`` float tensors and a ``(n_coalitions, n_players)``
 boolean coalition tensor, returning a ``(n_coalitions, C, H, W)`` batch.
 
@@ -18,6 +19,7 @@ import torch
 
 from shapiq.vision.masking import (
     BoolMaskedPosStrategy,
+    BlurMasking,
     CNNMaskingStrategy,
     LayerMasking,
     ManifoldMaskingStrategy,
@@ -120,6 +122,36 @@ class TestZeroMasking:
         coalition = torch.tensor([[True, True]])
         out = strategy.apply(image, half_masks, coalition)
         torch.testing.assert_close(out[0], image)
+
+
+class TestBlurMasking:
+    def test_is_cnn_masking_strategy(self) -> None:
+        assert isinstance(BlurMasking(), CNNMaskingStrategy)
+
+    def test_even_kernel_size_raises(self) -> None:
+        with pytest.raises(ValueError, match="kernel_size must be odd"):
+            BlurMasking(kernel_size=50)
+
+    def test_full_coalition_preserves_image(self, image, half_masks) -> None:
+        strategy = BlurMasking(kernel_size=3, sigma=1.0)
+        coalition = torch.tensor([[True, True]])
+        out = strategy.apply(image, half_masks, coalition)
+        torch.testing.assert_close(out[0], image)
+
+    def test_empty_coalition_uses_blurred_image(self, image, half_masks) -> None:
+        strategy = BlurMasking(kernel_size=3, sigma=1.0)
+        coalition = torch.tensor([[False, False]])
+        out = strategy.apply(image, half_masks, coalition)
+        expected = strategy._blur(image)
+        torch.testing.assert_close(out[0], expected)
+
+    def test_partial_coalition_blurs_only_absent_player(self, image, half_masks) -> None:
+        strategy = BlurMasking(kernel_size=3, sigma=1.0)
+        coalition = torch.tensor([[True, False]])
+        out = strategy.apply(image, half_masks, coalition)
+        blurred = strategy._blur(image)
+        torch.testing.assert_close(out[0, :, :, :2], image[:, :, :2])
+        torch.testing.assert_close(out[0, :, :, 2:], blurred[:, :, 2:])
 
 
 def test_cnn_masking_strategy_is_abstract() -> None:
