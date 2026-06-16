@@ -1073,6 +1073,7 @@ class InteractionValues:
         alpha: float = 0.5,
         cmap: Colormap | str | None = None,
         show: bool = True,
+        heatmap_only: bool = True,
     ) -> tuple[Figure, tuple[Axes, Axes]] | None:
         """Visualize first-order attributions as a heatmap overlaid on the original image.
 
@@ -1101,6 +1102,7 @@ class InteractionValues:
             alpha=alpha,
             cmap=cmap,
             show=show,
+            heatmap_only=heatmap_only,
         )
 
 
@@ -1230,20 +1232,20 @@ def _validate_and_return_interactions(
     Raises:
         TypeError: If the values or interaction_lookup are not of the expected types.
     """
-    interactions: dict[tuple[int, ...], float] = {}
-    if interaction_lookup is None:
-        interaction_lookup = generate_interaction_lookup(
-            players=n_players,
-            min_order=min_order,
-            max_order=max_order,
-        )
-    if interaction_lookup is not None and not isinstance(interaction_lookup, dict):
-        msg = f"Interaction lookup must be a dictionary. Got {type(interaction_lookup)}."
-        raise TypeError(msg)
-
+    interactions: dict[tuple[int, ...], float]
     if isinstance(values, dict):
-        interactions = copy.deepcopy(values)  # type: ignore[assignment]
+        # Shallow copy is sufficient, as keys and values are immutable (tuples[float,...] and float).
+        interactions = dict(values)
     else:
+        if interaction_lookup is None:
+            interaction_lookup = generate_interaction_lookup(
+                players=n_players,
+                min_order=min_order,
+                max_order=max_order,
+            )
+        if not isinstance(interaction_lookup, dict):
+            msg = f"Interaction lookup must be a dictionary. Got {type(interaction_lookup)}."
+            raise TypeError(msg)
         interactions = {
             interaction: values[index].item() for interaction, index in interaction_lookup.items()
         }

@@ -27,7 +27,8 @@ def image_attribution_plot(
     alpha: float = 0.5,
     cmap: Colormap | str | None = None,
     show: bool = True,
-) -> tuple[Figure, tuple[Axes, Axes]] | None:
+    heatmap_only: bool = True,
+) -> tuple[Figure, Axes] | tuple[Figure, tuple[Axes, Axes]] | None:
     """Visualize first-order attributions as a heatmap overlaid on the original image.
 
     Args:
@@ -40,12 +41,14 @@ def image_attribution_plot(
         cmap: Matplotlib colormap or name. ``None`` uses shapiq's BLUE→white→RED
             diverging palette. Defaults to ``None``.
         show: Whether to display the plot. Defaults to ``True``.
+        heatmap_only: Whether to show only the heatmap. Defaults to ``True``.
 
     Returns:
-        If ``show`` is ``False``, returns ``(figure, (ax_heatmap, ax_bar))``.
+        If ``show`` is ``False`` and ``heatmap_only`` is ``True``, returns ``(figure, ax_heatmap)``.
+        Otherwise returns ``(figure, (ax_heatmap, ax_bar))``.
 
     """
-    import matplotlib.cm as cm
+    from matplotlib import cm
 
     if cmap is None:
         from shapiq.plot._config import BLUE, NEUTRAL, RED
@@ -57,7 +60,6 @@ def image_attribution_plot(
         cmap = cm.get_cmap(cmap)
 
     first_order = interaction_values.get_n_order_values(1)
-    n_players = len(first_order)
 
     heatmap = np.zeros(image.shape[:2], dtype=float)
     for i, mask in enumerate(player_masks):
@@ -67,32 +69,43 @@ def image_attribution_plot(
     vmax = max(float(first_order.max()), 1e-9)
     norm = mcolors.TwoSlopeNorm(vmin=vmin, vcenter=0.0, vmax=vmax)
 
-    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+    if heatmap_only:
+        fig, ax_heatmap = plt.subplots(1, 1, figsize=(14, 5))
+        ax_bar = None
+    else:
+        fig, (ax_heatmap, ax_bar) = plt.subplots(1, 2, figsize=(14, 5))
 
-    axes[0].imshow(image)
-    axes[0].imshow(heatmap, alpha=alpha, cmap=cmap, norm=norm)
+    ax_heatmap.imshow(image)
+    ax_heatmap.imshow(heatmap, alpha=alpha, cmap=cmap, norm=norm)
     try:
         from skimage.segmentation import mark_boundaries
 
-        axes[0].imshow(mark_boundaries(image, player_masks.argmax(axis=0) + 1), alpha=0.3)
+        ax_heatmap.imshow(mark_boundaries(image, player_masks.argmax(axis=0) + 1), alpha=0.3)
     except ImportError:
         pass
-    axes[0].set_title("First-order attributions")
-    axes[0].axis("off")
+    ax_heatmap.set_title("First-order attributions")
+    ax_heatmap.axis("off")
 
-    bar_colors = [cmap(norm(v)) for v in first_order]
-    axes[1].bar(range(n_players), first_order, color=bar_colors)
-    axes[1].axhline(0, color="black", linewidth=0.8, linestyle="--")
-    axes[1].set_xlabel(region_label)
-    axes[1].set_ylabel("Attribution")
-    axes[1].set_title(f"First-order values per {region_label.lower()}")
+    if not heatmap_only:
+        n_players = len(first_order)
+        bar_colors = [cmap(norm(v)) for v in first_order]
+        ax_bar.bar(range(n_players), first_order, color=bar_colors)
+        ax_bar.axhline(0, color="black", linewidth=0.8, linestyle="--")
+        ax_bar.set_xlabel(region_label)
+        ax_bar.set_ylabel("Attribution")
+        ax_bar.set_title(f"First-order values per {region_label.lower()}")
 
     sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
-    cbar = fig.colorbar(sm, ax=list(axes), fraction=0.02, pad=0.04)
+    if heatmap_only:
+        cbar = fig.colorbar(sm, ax=ax_heatmap, fraction=0.02, pad=0.04)
+    else:
+        cbar = fig.colorbar(sm, ax=[ax_heatmap, ax_bar], fraction=0.02, pad=0.04)
     cbar.set_ticks([vmin, 0, vmax])
     cbar.set_ticklabels([f"{vmin:.2f}", "0", f"{vmax:.2f}"])
 
     if show:
         plt.show()
         return None
-    return fig, (axes[0], axes[1])
+    if heatmap_only:
+        return fig, ax_heatmap
+    return fig, (ax_heatmap, ax_bar)
