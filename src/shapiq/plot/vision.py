@@ -12,10 +12,59 @@ if TYPE_CHECKING:
     from matplotlib.axes import Axes
     from matplotlib.colors import Colormap
     from matplotlib.figure import Figure
+    from PIL.Image import Image
 
     from shapiq.interaction_values import InteractionValues
 
 __all__ = ["image_attribution_plot"]
+
+
+def _player_image_patches(
+    image: np.ndarray,
+    player_masks: np.ndarray,
+    *,
+    background: int | tuple[int, int, int] | None = 255,
+) -> list[Image]:
+    """Builds one cropped image patch per player from pixel-space masks.
+
+    Each patch is the original image cropped to the bounding box of the corresponding player
+    mask. Pixels inside the bounding box that do not belong to the player are optionally filled
+    with a solid ``background`` color. The returned list is indexed by player so it can be passed
+    directly as ``feature_image_patches`` to :func:`~shapiq.plot.upset.upset_plot`.
+
+    Args:
+        image: The original image as a ``(H, W, C)`` (or ``(H, W)``) numpy array. Float images are
+            scaled to ``uint8`` (values assumed to be in ``[0, 1]`` if the maximum is ``<= 1``).
+        player_masks: Boolean array of shape ``(n_players, H, W)`` mapping each player to its pixel
+            region, e.g. ``explainer.imputer.player_masks``.
+        background: Color used for the pixels inside the bounding box that do not belong to the
+            player. An ``int`` (grayscale) or RGB tuple. If ``None``, the surrounding pixels are
+            kept. Defaults to ``255`` (white).
+
+    Returns:
+        A list of ``PIL.Image`` patches, one per player.
+
+    """
+    from PIL import Image as PILImage
+
+    array = np.asarray(image)
+    if array.dtype != np.uint8:
+        array = array.astype(float)
+        if array.max() <= 1.0:
+            array = array * 255.0
+        array = np.clip(array, 0, 255).astype(np.uint8)
+
+    patches: list[Image] = []
+    for mask in player_masks:
+        ys, xs = np.where(mask)
+        y0, y1 = int(ys.min()), int(ys.max()) + 1
+        x0, x1 = int(xs.min()), int(xs.max()) + 1
+        crop = array[y0:y1, x0:x1].copy()
+        if background is not None:
+            outside = ~mask[y0:y1, x0:x1]
+            crop[outside] = background
+        patches.append(PILImage.fromarray(crop))
+    return patches
 
 
 def image_attribution_plot(

@@ -1051,16 +1051,55 @@ class InteractionValues:
 
         return sentence_plot(self, words, show=show, **kwargs)
 
-    def plot_upset(self, *, show: bool = True, **kwargs: Any) -> Figure | None:
+    def plot_upset(
+        self,
+        *,
+        image: np.ndarray | None = None,
+        explainer: ImageExplainer | None = None,
+        patch_background: int | tuple[int, int, int] | None = 255,
+        show: bool = True,
+        **kwargs: Any,
+    ) -> Figure | None:
         """Plots the upset plot.
 
         For arguments, see shapiq.plot.upset_plot().
+
+        For vision explanations, pass ``image`` together with ``explainer`` (the
+        ``ImageExplainer`` used to produce this object). The per-player image patches are then
+        built automatically from ``explainer.imputer.player_masks`` and shown along the y-axis
+        instead of textual feature names, so the players are visualized exactly as they were used
+        to compute the interaction values. This mirrors the API of
+        :meth:`plot_image_attributions`.
+
+        Args:
+            image: Optional original image as a ``(H, W, C)`` numpy array. Required to build image
+                patches together with ``explainer``.
+            explainer: Optional ``ImageExplainer`` used to produce this object. Its imputer provides
+                the pixel-space player masks used to crop the patches.
+            patch_background: Color for the pixels inside a patch's bounding box that do not belong
+                to the player. An ``int`` (grayscale) or RGB tuple, or ``None`` to keep the
+                surrounding pixels. Defaults to ``255`` (white).
+            show: Whether to show the plot. Defaults to ``True``.
+            **kwargs: Additional keyword arguments passed to
+                :func:`~shapiq.plot.upset.upset_plot` (e.g. ``feature_image_patches_size``).
 
         Returns:
             The upset plot as a matplotlib figure (if show is ``False``).
 
         """
         from shapiq.plot.upset import upset_plot
+
+        if explainer is not None or image is not None:
+            if explainer is None or image is None:
+                msg = "Both 'image' and 'explainer' must be provided to build image patches."
+                raise ValueError(msg)
+            from shapiq.plot.vision import _player_image_patches
+
+            kwargs["feature_image_patches"] = _player_image_patches(
+                image,
+                explainer.imputer.player_masks,
+                background=patch_background,
+            )
 
         return upset_plot(self, show=show, **kwargs)
 
@@ -1087,6 +1126,8 @@ class InteractionValues:
             cmap: Matplotlib colormap or name. ``None`` uses shapiq's BLUE→white→RED
                 diverging palette. Defaults to ``None``.
             show: Whether to display the plot. Defaults to ``True``.
+            heatmap_only: Whether to show only the heatmap and omit the bar chart. Defaults to
+                ``True``.
 
         Returns:
             If ``show`` is ``False``, returns ``(figure, (ax_heatmap, ax_bar))``.
