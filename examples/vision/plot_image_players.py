@@ -102,11 +102,7 @@ print(f"Grid players: {grid_strategy.n_players}")
 # %%
 # We can also fix the patch size in pixels and let the grid shape be inferred.
 # Here each patch is 56x56 px, which gives a 4x4 grid for a 224x224 image —
-# equivalent to the ``grid_shape=4`` call above.
-#
-# .. code-block:: python
-#
-#     grid_strategy = GridStrategy(patch_size=56) # noqa: ERA001
+# equivalent to the ``grid_shape=4`` call above, e.g. ``GridStrategy(patch_size=56)``.
 
 # %%
 # Explain with Grid Players
@@ -177,14 +173,8 @@ print(f"Custom players from SLIC: {custom_strategy.n_players}")
 custom_masks = custom_strategy.get_masks(image_np)
 
 # %%
-# The same interface accepts a pre-built 3-D boolean array, which is useful
-# when you already have masks from an external source:
-#
-# .. code-block:: python
-#
-#     my_masks = np.zeros((n_players, H, W), dtype=bool) # noqa: ERA001
-#     # ... fill in your masks ...
-#     custom_strategy = CustomPlayerStrategy(masks=my_masks) # noqa: ERA001
+# The same interface also accepts a pre-built 3-D boolean array, which is
+# useful when masks come from an external source.
 #
 # Any pixels not covered by any mask stay visible in every coalition and
 # are not attributed.  ``CustomPlayerStrategy`` will raise a ``UserWarning``
