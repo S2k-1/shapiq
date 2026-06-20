@@ -2,7 +2,7 @@
 Image Explanations with shapiq: CNN and Vision Transformer
 ============================================================
 
-This example demonstrates how to explain image classifiers using ``shapiq``'s vision package. 
+This example demonstrates how to explain image classifiers using ``shapiq``'s vision package.
 We cover two common architectures side-by-side:
 
 - A **ResNet-18** (CNN) explained using SLIC superpixels and mean-color masking
@@ -18,13 +18,11 @@ We use a sample image from the ImageNet dataset.
 from __future__ import annotations
 
 from pathlib import Path
-import numpy as np
-from PIL import Image
 
 import matplotlib.pyplot as plt
-
-import torchvision.models as models
-from torchvision import transforms
+import numpy as np
+from PIL import Image
+from torchvision import models, transforms
 
 # %%
 # Load the ImageNet Sample Image
@@ -62,16 +60,15 @@ resnet.eval()
 # Resize the image and normalize the pixel values as the loaded model expects.
 
 # Resize and crop
-resize_and_crop = transforms.Compose([
-    transforms.Resize(256),
-    transforms.CenterCrop(224)
-])
+resize_and_crop = transforms.Compose([transforms.Resize(256), transforms.CenterCrop(224)])
 
 # Convert to tensor and normalize
-tensor_and_norm = transforms.Compose([
-    transforms.ToTensor(),
-    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-])
+tensor_and_norm = transforms.Compose(
+    [
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+    ]
+)
 
 resized_image = resize_and_crop(pil_image)
 tensor_image = tensor_and_norm(resized_image)
@@ -80,7 +77,7 @@ tensor_image = tensor_and_norm(resized_image)
 # Build the architecture strategy.  The
 # :class:`~shapiq.vision.architecture.CNNArchitecture` wraps the model and
 # handles the forward pass. By default it will compute SLIC superpixel masks
-# aiming at around 16 players and apply mean-color masking for absent players. 
+# aiming at around 16 players and apply mean-color masking for absent players.
 # To use zero masking instead pass ``masking_strategy=ZeroMasking()``.
 #
 # To use a different player partition (fixed grid or custom masks) see the
@@ -109,7 +106,7 @@ print(f"Number of superpixel players: {cnn_explainer.imputer.n_features}")
 # %%
 # Compute Shapley Interaction Values
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# A suitable approximator is selected automatically by the explainer based 
+# A suitable approximator is selected automatically by the explainer based
 # on the number of players.
 
 cnn_iv = cnn_explainer.explain(budget=256)
@@ -147,7 +144,7 @@ cnn_iv.plot_network(feature_names=player_names_cnn)
 #
 # The :class:`~shapiq.vision.architecture.TransformerArchitecture` uses the
 # Hugging Face processor for preprocessing and runs a batched forward pass.
-# By default it uses :class:`~shapiq.vision.players.PatchStrategy` (9 players, 3×3 grid) and
+# By default it uses :class:`~shapiq.vision.players.PatchStrategy` (9 players, 3x3 grid) and
 # :class:`~shapiq.vision.masking.MaskTokenStrategy`, which zeros the
 # ``mask_token`` embedding. Note that ViTs can only use players or masking that operate
 # in token space, pixel-space strategies like ``MeanColorMasking`` are not compatible.
@@ -178,7 +175,7 @@ vit_arch = TransformerArchitecture(
 # %%
 # Create the :class:`~shapiq.vision.explainer.ImageExplainer` for the ViT.
 # We again use ``index="k-SII"`` and ``max_order=2`` for a combined
-# first- and second-order explanation in a single run and compute 
+# first- and second-order explanation in a single run and compute
 # the interaction values.
 
 vit_explainer = ImageExplainer(
@@ -209,7 +206,7 @@ vit_iv.plot_image_attributions(
 # %%
 # Visualize Pairwise Interaction Network (ViT)
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# The network plot highlights the interaction between patch players 
+# The network plot highlights the interaction between patch players
 # as described above for the CNN.
 
 player_names_vit = [f"Patch {i}" for i in range(vit_explainer.imputer.n_features)]

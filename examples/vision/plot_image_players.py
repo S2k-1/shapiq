@@ -22,7 +22,7 @@ All three strategies plug into the same
 :class:`~shapiq.vision.explainer.ImageExplainer` pipeline without any other
 changes.
 
-Note that for ViT models the natural player definition is patch tokens, so 
+Note that for ViT models the natural player definition is patch tokens, so
 the above strategies are not applicable.  For ViTs see the
 :ref:`sphx_glr_auto_examples_vision_plot_image_explanations.py` example instead.
 """
@@ -31,19 +31,16 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import matplotlib.pyplot as plt
 import numpy as np
 from PIL import Image
-import matplotlib.pyplot as plt
-import torchvision.models as models
-from torchvision import transforms
-
+from torchvision import models, transforms
 
 # %%
 # Load Image and Model
 # ---------------------
 # We reuse the same ImageNet sample and ResNet-18 model as in the quickstart
 # notebook.  The image is preprocessed and shared across all three player strategies.
-
 from shapiq.vision import ImageExplainer
 from shapiq.vision.architecture import CNNArchitecture
 from shapiq.vision.masking import MeanColorMasking
@@ -51,14 +48,18 @@ from shapiq.vision.masking import MeanColorMasking
 image_path = Path("imagenet_sample.png")
 pil_image = Image.open(image_path).convert("RGB")
 
-resize_and_crop = transforms.Compose([
-    transforms.Resize(256),
-    transforms.CenterCrop(224),
-])
-tensor_and_norm = transforms.Compose([
-    transforms.ToTensor(),
-    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-])
+resize_and_crop = transforms.Compose(
+    [
+        transforms.Resize(256),
+        transforms.CenterCrop(224),
+    ]
+)
+tensor_and_norm = transforms.Compose(
+    [
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+    ]
+)
 
 resized_image = resize_and_crop(pil_image)
 tensor_image = tensor_and_norm(resized_image)
@@ -93,19 +94,19 @@ plt.show()
 
 from shapiq.vision.players import GridStrategy
 
-grid_strategy = GridStrategy(grid_shape=5)  # 5×5 = 25 players
+grid_strategy = GridStrategy(grid_shape=5)  # 5x5 = 25 players
 grid_masks = grid_strategy.get_masks(image_np)
 
 print(f"Grid players: {grid_strategy.n_players}")
 
 # %%
 # We can also fix the patch size in pixels and let the grid shape be inferred.
-# Here each patch is 56×56 px, which gives a 4×4 grid for a 224×224 image —
+# Here each patch is 56x56 px, which gives a 4x4 grid for a 224x224 image —
 # equivalent to the ``grid_shape=4`` call above.
 #
 # .. code-block:: python
 #
-#     grid_strategy = GridStrategy(patch_size=56)
+#     grid_strategy = GridStrategy(patch_size=56) # noqa: ERA001
 
 # %%
 # Explain with Grid Players
@@ -137,7 +138,7 @@ iv_grid.plot_image_attributions(image=image_np, explainer=explainer_grid, heatma
 # :class:`~shapiq.vision.players.SuperpixelStrategy` runs SLIC internally
 # and is the default player strategy for ``CNNArchitecture``.  It is shown
 # here for comparison — see the quickstart notebook for a full walkthrough.
-# The number of superpixels (players) might increase or decrease from the 
+# The number of superpixels (players) might increase or decrease from the
 # requested ``nsegments`` depending on the SLIC output.
 
 from shapiq.vision.players import SuperpixelStrategy
@@ -156,7 +157,7 @@ print(f"SLIC players (requested 16, got {slic_strategy.n_players})")
 # user-supplied partition — binary masks, a segmentation label map, or the
 # output of an external segmenter.
 #
-# Here we demonstrate the workflow with a SLIC segmentation received 
+# Here we demonstrate the workflow with a SLIC segmentation received
 # from the ``skimage`` implementation.
 
 from skimage.segmentation import slic as skimage_slic
@@ -181,9 +182,9 @@ custom_masks = custom_strategy.get_masks(image_np)
 #
 # .. code-block:: python
 #
-#     my_masks = np.zeros((n_players, H, W), dtype=bool)
+#     my_masks = np.zeros((n_players, H, W), dtype=bool) # noqa: ERA001
 #     # ... fill in your masks ...
-#     custom_strategy = CustomPlayerStrategy(masks=my_masks)
+#     custom_strategy = CustomPlayerStrategy(masks=my_masks) # noqa: ERA001
 #
 # Any pixels not covered by any mask stay visible in every coalition and
 # are not attributed.  ``CustomPlayerStrategy`` will raise a ``UserWarning``

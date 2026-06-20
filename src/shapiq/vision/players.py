@@ -358,7 +358,7 @@ class SuperpixelStrategy(CNNPlayerStrategy):
         >>> masks = strategy.get_masks(image)   # (n_players, H, W) bool
         >>> strategy.n_players  # actual superpixel count, may differ from 16
         16
-    """ 
+    """
 
     def __init__(self, n_segments: int, algorithm: Literal["slic", "slico"] = "slico") -> None:
         """Initialize the strategy with the desired number of superpixels and algorithm."""
