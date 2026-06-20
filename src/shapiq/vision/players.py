@@ -344,12 +344,11 @@ class SuperpixelStrategy(CNNPlayerStrategy):
 
     Args:
         n_segments: Preferred number of superpixels to request from SLIC.
-        algorithm: SLIC variant to use.
-            - ``"slico"`` (default): SLIC-zero — enforces equal-size
-              superpixels regardless of image texture, producing a more
-              uniform grid.
-            - ``"slic"``: standard SLIC — segment size follows image content,
-              which can yield very irregular segments in textured regions.
+        algorithm: SLIC variant to use. Either ``"slico"`` (default) for
+            SLIC-zero, which enforces equal-size superpixels regardless of
+            image texture, or ``"slic"`` for standard SLIC, where segment
+            size follows image content and can yield irregular segments in
+            textured regions.
 
     Raises:
         ValueError: If neither ``n_segments`` nor ``mask`` is provided.
@@ -357,9 +356,9 @@ class SuperpixelStrategy(CNNPlayerStrategy):
     Example:
         >>> strategy = SuperpixelStrategy(n_segments=16)
         >>> masks = strategy.get_masks(image)   # (n_players, H, W) bool
-        >>> strategy.n_players                  # actual superpixel count
+        >>> strategy.n_players  # actual superpixel count, may differ from 16
         16
-    """
+    """ 
 
     def __init__(self, n_segments: int, algorithm: Literal["slic", "slico"] = "slico") -> None:
         """Initialize the strategy with the desired number of superpixels and algorithm."""

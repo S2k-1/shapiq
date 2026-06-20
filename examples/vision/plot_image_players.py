@@ -21,28 +21,28 @@ All three strategies plug into the same
 :class:`~shapiq.vision.architecture.CNNArchitecture` /
 :class:`~shapiq.vision.explainer.ImageExplainer` pipeline without any other
 changes.
+
+Note that for ViT models the natural player definition is patch tokens, so 
+the above strategies are not applicable.  For ViTs see the
+:ref:`sphx_glr_auto_examples_vision_plot_image_explanations.py` example instead.
 """
 
 from __future__ import annotations
 
-import os
+from pathlib import Path
 
-os.environ.setdefault("OMP_NUM_THREADS", "1")
-os.environ.setdefault("MKL_NUM_THREADS", "1")
+import numpy as np
+from PIL import Image
+import matplotlib.pyplot as plt
+import torchvision.models as models
+from torchvision import transforms
+
 
 # %%
 # Load Image and Model
 # ---------------------
 # We reuse the same ImageNet sample and ResNet-18 model as in the quickstart
-# notebook.  The preprocessing pipeline (resize → center-crop → normalize) is
-# applied once and shared across all three player strategies.
-
-from pathlib import Path
-
-import numpy as np
-import torchvision.models as models
-from PIL import Image
-from torchvision import transforms
+# notebook.  The image is preprocessed and shared across all three player strategies.
 
 from shapiq.vision import ImageExplainer
 from shapiq.vision.architecture import CNNArchitecture
@@ -67,7 +67,12 @@ image_np = np.array(resized_image)
 resnet = models.resnet18(weights=models.ResNet18_Weights.IMAGENET1K_V1)
 resnet.eval()
 
-resized_image
+fig, ax = plt.subplots()
+ax.imshow(pil_image)
+ax.axis("off")
+ax.set_title("ImageNet sample")
+plt.tight_layout()
+plt.show()
 
 
 # %%
@@ -79,7 +84,7 @@ resized_image
 #
 # - ``grid_shape`` — fix the number of tiles; patch sizes are derived from
 #   the image dimensions.
-# - ``patchsize`` — fix the pixel size of each patch; the grid dimensions
+# - ``patch_size`` — fix the pixel size of each patch; the grid dimensions
 #   are inferred.
 #
 # Edge patches absorb any remainder pixels when the image size is not an
@@ -96,11 +101,11 @@ print(f"Grid players: {grid_strategy.n_players}")
 # %%
 # We can also fix the patch size in pixels and let the grid shape be inferred.
 # Here each patch is 56×56 px, which gives a 4×4 grid for a 224×224 image —
-# equivalent to the ``gridshape=4`` call above.
+# equivalent to the ``grid_shape=4`` call above.
 #
 # .. code-block:: python
 #
-#     grid_strategy = GridStrategy(patchsize=56)
+#     grid_strategy = GridStrategy(patch_size=56)
 
 # %%
 # Explain with Grid Players
@@ -151,7 +156,8 @@ print(f"SLIC players (requested 16, got {slic_strategy.n_players})")
 # user-supplied partition — binary masks, a segmentation label map, or the
 # output of an external segmenter.
 #
-# Here we demonstrate the workflow with a SLIC segmentation received from the ``skimage`` implementation.
+# Here we demonstrate the workflow with a SLIC segmentation received 
+# from the ``skimage`` implementation.
 
 from skimage.segmentation import slic as skimage_slic
 
@@ -160,7 +166,7 @@ print(f"Unique SLIC labels (fine-grained): {len(np.unique(fine_labels))}")
 
 # %%
 # Pass the 2-D integer label map directly to ``CustomPlayerStrategy``.
-# It converts the label map to a 3-D boolean mask array automatically.
+# It converts the map automatically.
 
 from shapiq.vision.players import CustomPlayerStrategy
 
@@ -204,8 +210,3 @@ explainer_custom = ImageExplainer(
 iv_custom = explainer_custom.explain(budget=512)
 
 iv_custom.plot_image_attributions(image=image_np, explainer=explainer_custom, heatmap_only=False)
-
-# %%
-# References
-# ----------
-# .. footbibliography::
