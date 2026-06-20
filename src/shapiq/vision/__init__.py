@@ -1,6 +1,7 @@
 """Vision-based explanation methods for image models."""
 
 from .architecture import CNNArchitecture, ModelArchitectureStrategy, TransformerArchitecture
+from .explainer import ImageExplainer
 from .imputer import ImageImputer
 from .masking import (
     BoolMaskedPosStrategy,
@@ -23,6 +24,8 @@ __all__ = [
     "ModelArchitectureStrategy",
     "CNNArchitecture",
     "TransformerArchitecture",
+    # Explainer
+    "ImageExplainer",
     # Imputer
     "ImageImputer",
     # Masking
