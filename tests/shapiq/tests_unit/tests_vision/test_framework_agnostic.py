@@ -26,6 +26,7 @@ class TestImportError:
             "shapiq.vision.utils",
             "shapiq.vision.masking",
             "shapiq.vision.architecture",
+            "shapiq.vision.imputer",
         ],
     )
     def test_raises_import_error_when_torch_missing(self, module_name):
