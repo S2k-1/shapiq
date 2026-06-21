@@ -42,12 +42,3 @@ __all__ = [
     "SuperpixelStrategy",
     "PatchStrategy",
 ]
-
-
-def __getattr__(name: str) -> object:
-    if name == "ImageExplainer":
-        from .explainer import ImageExplainer
-
-        return ImageExplainer
-    msg = f"module {__name__!r} has no attribute {name!r}"
-    raise AttributeError(msg)

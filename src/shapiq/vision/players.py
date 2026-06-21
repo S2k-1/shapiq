@@ -387,7 +387,6 @@ class SuperpixelStrategy(CNNPlayerStrategy):
             from skimage.segmentation import slic
         except ImportError as err:
             from ._error import _vision_import_error
-
             raise _vision_import_error from err
 
         slic_zero = self._algorithm == "slico"
