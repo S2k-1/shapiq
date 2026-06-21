@@ -383,7 +383,12 @@ class SuperpixelStrategy(CNNPlayerStrategy):
             masks[i, y, x] == True iff pixel (y,x) belongs to superpixel i.
 
         """
-        from skimage.segmentation import slic
+        try:
+            from skimage.segmentation import slic
+        except ImportError as err:
+            from ._error import _vision_import_error
+
+            raise _vision_import_error from err
 
         slic_zero = self._algorithm == "slico"
         superpixels = slic(image, n_segments=self.n_segments, start_label=1, slic_zero=slic_zero)
