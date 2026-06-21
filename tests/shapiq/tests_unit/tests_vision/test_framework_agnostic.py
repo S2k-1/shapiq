@@ -16,8 +16,8 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
-
 _INSTALL_HINT = re.escape("pip install shapiq[vision]")
+
 
 class TestImportError:
     @pytest.mark.parametrize(
@@ -45,6 +45,7 @@ class TestImportError:
         dummy = np.zeros((16, 16, 3), dtype=np.uint8)
         with patch.dict(sys.modules, {"skimage": None, "skimage.segmentation": None}):
             import shapiq.vision.players as players_mod
+
             importlib.reload(players_mod)
             strategy = players_mod.SuperpixelStrategy(n_segments=4)
             with pytest.raises(ImportError, match=_INSTALL_HINT):
