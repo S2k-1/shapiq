@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Literal
 
 from shapiq.explainer.base import Explainer
-from shapiq.explainer.configuration import setup_approximator
+from shapiq.explainer.configuration import ValidApproximatorTypes, setup_approximator
 from shapiq.explainer.custom_types import ExplainerIndices
 from shapiq.game_theory.indices import is_empty_value_the_baseline
 
@@ -21,9 +21,7 @@ if TYPE_CHECKING:
     from .utils import ImageLike
 
 ImageExplainerIndices = ExplainerIndices
-ImageExplainerApproximators = Literal[
-    "spex", "proxyshap", "proxyspex"
-]
+ImageExplainerApproximators = ValidApproximatorTypes
 
 
 class ImageExplainer(Explainer):
@@ -56,7 +54,7 @@ class ImageExplainer(Explainer):
         class_index: int | None = None,
         imputer: ImageImputer | None = None,
         approximator: (
-            Literal["auto"] | Approximator[ImageExplainerIndices]
+            Literal["auto"] | ImageExplainerApproximators | Approximator[ImageExplainerIndices]
         ) = "auto",
         index: ExplainerIndices = "SV",
         max_order: int = 1,
@@ -65,7 +63,7 @@ class ImageExplainer(Explainer):
         **kwargs: Any,
     ) -> None:
         """Initialize an image explainer.
-        
+
         Args:
             model: A configured
                 :class:`~shapiq.vision.architecture.ModelArchitectureStrategy`
@@ -74,36 +72,36 @@ class ImageExplainer(Explainer):
                 This object owns the model, the player strategy, and the masking
                 strategy. Sensible defaults are chosen automatically if no custom
                 strategies are passed to the architecture constructor.
-                
+
             data: The image to explain. Accepts a numpy ``(H, W, C)`` or
                 ``(H, W)`` array, a PIL :class:`~PIL.Image.Image`, or a PyTorch
                 ``(C, H, W)`` / ``(H, W, C)`` tensor. Batched 4-D inputs are not
                 supported.
-                
+
             class_index: The class index of the model to explain. Defaults to ``None``, which will
-                set the class index to the highest predicted class for classification models.
-                
+                set the class index to the highest predicted class for the image.
+
             imputer: An already-constructed :class:`~shapiq.vision.imputer.ImageImputer`.
-            
+
             approximator: An :class:`~shapiq.approximator.Approximator` object to use for the
                 explainer or a literal string from
-                ``["auto", "spex", "proxyshap", "proxyspex"]``. Defaults to ``"auto"``
-                which automatically selects a :class:`~shapiq.approximator.Approximator` 
+                ``["auto", "spex", "montecarlo", "svarm", "permutation", "regression", "proxyshap", "proxyspex"]``. Defaults to ``"auto"``
+                which automatically selects a :class:`~shapiq.approximator.Approximator`
                 based on the selected index and max_order.
-            
+
             index: The Shapley-interaction index to compute. Any value accepted by
                 :func:`~shapiq.explainer.configuration.setup_approximator` is
                 valid, e.g.  ``SV``, ``"k-SII"``, ``"SII"``, ``"STI"``,
                 ``"FSI"``, ``"FSII"``.
-                
+
             max_order: Maximum interaction order to compute. Defaults to ``1``.
-                
+
             random_state: Seed for the approximator's random number generator.
                 Defaults to ``None``.
-                
+
             batch_size: Number of coalitions forwarded to the model per call.
                 Defaults to ``32``.
-                
+
             **kwargs: Additional keyword arguments.
         """
         if isinstance(imputer, ImageImputer):
@@ -118,6 +116,7 @@ class ImageExplainer(Explainer):
         super().__init__(
             model=_imputer.value_function,
             data=None,
+            class_index=class_index,
             index=index,
             max_order=max_order,
             **kwargs,
@@ -146,11 +145,11 @@ class ImageExplainer(Explainer):
         Args:
             x (np.ndarray | None): Image to be explained. If not passed, the explainer will use the image passed during initialization.
                 Accepts PIL Image, numpy array (H, W, C) or (C, H, W), or a PyTorch tensor.
-            
+
             budget (int): The budget to use for the approximation. It indicates how many coalitions are
                 sampled, thus high values indicate more accurate approximations, but induce higher
                 computational costs.
-                
+
             random_state: The random state to re-initialize Imputer and Approximator with.
                 Defaults to ``None``, which will not set a random state.
 
@@ -159,7 +158,7 @@ class ImageExplainer(Explainer):
             the computed interaction values.
         """
         self.set_random_state(random_state)
-        
+
         if x is not None:
             self._imputer.fit(x)
         interaction_values = self._approximator.approximate(budget=budget, game=self._imputer)
