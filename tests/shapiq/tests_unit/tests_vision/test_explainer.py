@@ -117,6 +117,47 @@ class TestImageExplainer:
         result_with_a = explainer.explain_function(image_a, budget=32)
         assert not np.allclose(result_with_a.values, result_with_b.values)
 
+    def test_class_index_forwarded_to_architecture(self, tiny_image, two_player_masks) -> None:
+        arch = _build_arch(two_player_masks)
+
+        explainer = ImageExplainer(
+            model_architecture=arch,
+            data=tiny_image,
+            class_index=1,
+            random_state=0,
+        )
+        assert explainer._imputer.architecture._class_id == 1
+
+    def test_class_index_none_keeps_argmax(self, tiny_image, two_player_masks) -> None:
+        arch = _build_arch(two_player_masks)
+        explainer = ImageExplainer(
+            model_architecture=arch,
+            data=tiny_image,
+            class_index=None,
+            random_state=0,
+        )
+        assert explainer._imputer.architecture._class_id == 0
+
+    def test_explain_function_random_state_reproducible(self, tiny_image, two_player_masks) -> None:
+        explainer = ImageExplainer(
+            model_architecture=_build_arch(two_player_masks),
+            data=tiny_image,
+            index="k-SII",
+            max_order=2,
+        )
+        result_a = explainer.explain_function(tiny_image, budget=16, random_state=42)
+        result_b = explainer.explain_function(tiny_image, budget=16, random_state=42)
+        np.testing.assert_allclose(result_a.values, result_b.values)
+
+    def test_custom_approximator_is_used(self, tiny_image, two_player_masks) -> None:
+        explainer = ImageExplainer(
+            model_architecture=_build_arch(two_player_masks),
+            data=tiny_image,
+            approximator="permutation",
+            random_state=0,
+        )
+        assert "permutation" in type(explainer._approximator).__name__.lower()
+
 
 class TestImageExplainerTransformer:
     def test_transformer_explainer_end_to_end(self, transformer_architecture, image_24x24) -> None:

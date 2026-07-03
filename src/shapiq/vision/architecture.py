@@ -123,7 +123,7 @@ class CNNArchitecture(ModelArchitectureStrategy):
         self._player_strategy = player_strategy or self.default_player_strategy()
         self._player_masks: torch.Tensor
         self._image_tensor: torch.Tensor
-        self._class_id: int
+        self._class_id: int | None = None
 
     def default_player_strategy(self) -> SuperpixelStrategy:
         """Return a superpixel player strategy."""
@@ -222,7 +222,7 @@ class TransformerArchitecture(ModelArchitectureStrategy):
         self._pixel_values: torch.Tensor
         self._player_masks: torch.Tensor
         self._token_masks: torch.Tensor
-        self._class_id: int
+        self._class_id: int | None = None
 
     def default_player_strategy(self) -> PatchStrategy:
         """Return a patch player strategy with a 3x3 grid."""

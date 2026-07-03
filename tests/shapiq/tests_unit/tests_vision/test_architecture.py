@@ -72,6 +72,13 @@ class TestCNNArchitecture:
         # ChannelSumModel class-0 logit (positive sum) wins.
         assert arch._class_id == 0
 
+    def test_prepare_class_index_overrides_argmax(self, tiny_image, two_player_masks) -> None:
+        arch = CNNArchitecture(
+            model=ChannelSumModel(), player_strategy=FixedMasksStrategy(two_player_masks)
+        )
+        arch.prepare(tiny_image, class_index=1)
+        assert arch._class_id == 1
+
     def test_value_function_returns_value_per_coalition(self, tiny_image, two_player_masks) -> None:
         arch = CNNArchitecture(
             model=ChannelSumModel(),
@@ -173,6 +180,15 @@ class TestTransformerArchitecture:
         assert arch._pixel_values is not None
         assert arch._pixel_values.shape == (1, 3, 24, 24)
         assert arch._token_masks is not None
+
+    def test_prepare_class_index_overrides_argmax(self, image_24x24) -> None:
+        arch = TransformerArchitecture(
+            model=MockViT(),
+            vit_processor=MockViTProcessor(),
+            masking_strategy=BoolMaskedPosStrategy(),
+        )
+        arch.prepare(image_24x24, class_index=1)
+        assert arch._class_id == 1
 
     def test_value_function_shape_and_monotonicity(self, image_24x24) -> None:
         arch = TransformerArchitecture(
