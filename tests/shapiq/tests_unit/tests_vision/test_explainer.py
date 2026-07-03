@@ -25,7 +25,7 @@ def _build_arch(masks):
 class TestImageExplainer:
     def test_explainer_returns_interaction_values(self, tiny_image, two_player_masks) -> None:
         explainer = ImageExplainer(
-            model_architecture=_build_arch(two_player_masks),
+            model=_build_arch(two_player_masks),
             data=tiny_image,
             index="k-SII",
             max_order=2,
@@ -39,7 +39,7 @@ class TestImageExplainer:
         self, tiny_image, two_player_masks
     ) -> None:
         explainer = ImageExplainer(
-            model_architecture=_build_arch(two_player_masks),
+            model=_build_arch(two_player_masks),
             data=tiny_image,
             random_state=0,
         )
@@ -49,7 +49,7 @@ class TestImageExplainer:
         rng = np.random.default_rng(0)
         image = rng.integers(0, 255, size=(6, 6, 3)).astype(np.float64)
         explainer = ImageExplainer(
-            model_architecture=_build_arch(three_player_masks),
+            model=_build_arch(three_player_masks),
             data=image,
             index="k-SII",
             max_order=2,
@@ -69,7 +69,7 @@ class TestImageExplainer:
             batch_size=8,
         )
         explainer = ImageExplainer(
-            model_architecture=arch,
+            model=arch,
             data=tiny_image,
             imputer=imputer,
             random_state=0,
@@ -79,7 +79,7 @@ class TestImageExplainer:
 
     def test_explainer_sets_empty_interaction_for_k_sii(self, tiny_image, two_player_masks) -> None:
         explainer = ImageExplainer(
-            model_architecture=_build_arch(two_player_masks),
+            model=_build_arch(two_player_masks),
             data=tiny_image,
             index="k-SII",
             random_state=0,
@@ -92,7 +92,7 @@ class TestImageExplainer:
         image_b = np.zeros((4, 4, 3))
 
         explainer = ImageExplainer(
-            model_architecture=_build_arch(two_player_masks),
+            model=_build_arch(two_player_masks),
             data=image_a,
             index="k-SII",
             max_order=2,
@@ -103,7 +103,7 @@ class TestImageExplainer:
         result_with_b = explainer.explain_function(image_b, budget=32)
 
         explainer_on_b = ImageExplainer(
-            model_architecture=_build_arch(two_player_masks),
+            model=_build_arch(two_player_masks),
             data=image_b,
             index="k-SII",
             max_order=2,
@@ -121,7 +121,7 @@ class TestImageExplainer:
         arch = _build_arch(two_player_masks)
 
         explainer = ImageExplainer(
-            model_architecture=arch,
+            model=arch,
             data=tiny_image,
             class_index=1,
             random_state=0,
@@ -131,7 +131,7 @@ class TestImageExplainer:
     def test_class_index_none_keeps_argmax(self, tiny_image, two_player_masks) -> None:
         arch = _build_arch(two_player_masks)
         explainer = ImageExplainer(
-            model_architecture=arch,
+            model=arch,
             data=tiny_image,
             class_index=None,
             random_state=0,
@@ -140,7 +140,7 @@ class TestImageExplainer:
 
     def test_explain_function_random_state_reproducible(self, tiny_image, two_player_masks) -> None:
         explainer = ImageExplainer(
-            model_architecture=_build_arch(two_player_masks),
+            model=_build_arch(two_player_masks),
             data=tiny_image,
             index="k-SII",
             max_order=2,
@@ -151,7 +151,7 @@ class TestImageExplainer:
 
     def test_custom_approximator_is_used(self, tiny_image, two_player_masks) -> None:
         explainer = ImageExplainer(
-            model_architecture=_build_arch(two_player_masks),
+            model=_build_arch(two_player_masks),
             data=tiny_image,
             approximator="permutation",
             random_state=0,
@@ -162,7 +162,7 @@ class TestImageExplainer:
 class TestImageExplainerTransformer:
     def test_transformer_explainer_end_to_end(self, transformer_architecture, image_24x24) -> None:
         explainer = ImageExplainer(
-            model_architecture=transformer_architecture,
+            model=transformer_architecture,
             data=image_24x24,
             index="k-SII",
             max_order=2,

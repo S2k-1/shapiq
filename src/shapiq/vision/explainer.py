@@ -48,7 +48,7 @@ class ImageExplainer(Explainer):
 
     def __init__(
         self,
-        model_architecture: ModelArchitectureStrategy,
+        model: ModelArchitectureStrategy,
         data: ImageLike,
         *,
         class_index: int | None = None,
@@ -65,7 +65,7 @@ class ImageExplainer(Explainer):
         """Initialize an image explainer.
 
         Args:
-            model_architecture: A configured
+            model: A configured
                 :class:`~shapiq.vision.architecture.ModelArchitectureStrategy`
                 (e.g. :class:`~shapiq.vision.architecture.CNNArchitecture` or
                 :class:`~shapiq.vision.architecture.TransformerArchitecture`).
@@ -108,7 +108,7 @@ class ImageExplainer(Explainer):
             _imputer: ImageImputer = imputer
         else:
             _imputer: ImageImputer = ImageImputer(
-                model_architecture=model_architecture,
+                model_architecture=model,
                 image=data,
                 batch_size=batch_size,
                 class_index=class_index,

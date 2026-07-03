@@ -115,7 +115,7 @@ cnn_arch_grid = CNNArchitecture(
     player_strategy=grid_strategy,
 )
 explainer_grid = ImageExplainer(
-    model_architecture=cnn_arch_grid,
+    model=cnn_arch_grid,
     data=tensor_image,
     index="k-SII",
     max_order=2,
@@ -191,7 +191,7 @@ cnn_arch_custom = CNNArchitecture(
     masking_strategy=MeanColorMasking(),
 )
 explainer_custom = ImageExplainer(
-    model_architecture=cnn_arch_custom,
+    model=cnn_arch_custom,
     data=tensor_image,
     index="k-SII",
     max_order=2,

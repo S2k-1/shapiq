@@ -94,7 +94,7 @@ cnn_arch = CNNArchitecture(
 # You can pass the image as a PIL image, preprocessed tensor, or numpy array.
 
 cnn_explainer = ImageExplainer(
-    model_architecture=cnn_arch,
+    model=cnn_arch,
     data=tensor_image,
     index="k-SII",
     max_order=2,
@@ -179,7 +179,7 @@ vit_arch = TransformerArchitecture(
 # the interaction values.
 
 vit_explainer = ImageExplainer(
-    model_architecture=vit_arch,
+    model=vit_arch,
     data=pil_image,
     index="k-SII",
     max_order=2,
