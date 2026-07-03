@@ -360,7 +360,7 @@ class SuperpixelStrategy(CNNPlayerStrategy):
         16
     """
 
-    def __init__(self, n_segments: int, algorithm: Literal["slic", "slico"] = "slico") -> None:
+    def __init__(self, n_segments: int, algorithm: Literal["slic", "slico"] = "slic") -> None:
         """Initialize the strategy with the desired number of superpixels and algorithm."""
         if n_segments < 1:
             msg = "n_segments must be a positive integer."
