@@ -120,7 +120,7 @@ print(cnn_iv)
 
 cnn_iv.plot_image_attributions(
     image=np.array(resized_image),
-    explainer=cnn_explainer,
+    player_masks=cnn_explainer.imputer.player_masks,
     heatmap_only=False,
 )
 
@@ -199,7 +199,7 @@ print(vit_iv)
 
 vit_iv.plot_image_attributions(
     image=np.array(pil_image),
-    explainer=vit_explainer,
+    player_masks=vit_explainer.imputer.player_masks,
     heatmap_only=False,
 )
 
