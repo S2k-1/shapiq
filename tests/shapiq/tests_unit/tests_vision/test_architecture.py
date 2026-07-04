@@ -148,26 +148,24 @@ class TestTransformerArchitecture:
         arch = TransformerArchitecture(model=MockViT(), vit_processor=MockViTProcessor())
         assert isinstance(arch.default_masking_strategy(), MaskTokenStrategy)
 
-    def test_init_fails_for_standard_vit_without_custom_players(self) -> None:
-        """ViT-B/16 uses a 14x14 token grid; default 9 macro-patches do not divide 14."""
+    def test_init_succeeds_for_standard_vit(self) -> None:
+        """ViT-B/16 uses a 14x14 token grid; construction must not raise on the default."""
         model = SimpleNamespace(
             config=SimpleNamespace(image_size=224, patch_size=16, hidden_size=768)
         )
-        with pytest.raises(ValueError, match="divisible"):
-            TransformerArchitecture(model=model, vit_processor=object())
+        arch = TransformerArchitecture(model=model, vit_processor=object())
+        assert isinstance(arch.default_player_strategy(), PatchStrategy)
 
-    def test_default_player_strategy_fails_for_standard_vit_grid(self) -> None:
-        """``default_player_strategy()`` is invalid for ViT-B/16's 14x14 token grid."""
+    def test_default_player_strategy_adapts_to_standard_vit_grid(self) -> None:
+        """``default_player_strategy()`` yields a valid grid for ViT-B/16's 14x14 tokens."""
         model = SimpleNamespace(
             config=SimpleNamespace(image_size=224, patch_size=16, hidden_size=768)
         )
-        arch = TransformerArchitecture(
-            model=model,
-            vit_processor=object(),
-            player_strategy=PatchStrategy(grid_size=6, n_players=4),
-        )
-        with pytest.raises(ValueError, match="divisible"):
-            arch.default_player_strategy()
+        arch = TransformerArchitecture(model=model, vit_processor=object())
+        strategy = arch.default_player_strategy()
+        assert strategy.grid_size == 14
+        assert strategy.n_players == 4
+        assert strategy.grid_size % strategy.side == 0
 
     def test_prepare_sets_class_id_and_caches_state(self, image_24x24) -> None:
         arch = TransformerArchitecture(

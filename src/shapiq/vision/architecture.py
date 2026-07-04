@@ -203,8 +203,8 @@ class TransformerArchitecture(ModelArchitectureStrategy):
         masking_strategy: Token-space masking strategy. Defaults to
             :class:`~shapiq.vision.masking.MaskTokenStrategy`.
         player_strategy: Player definition strategy. Defaults to
-            :class:`~shapiq.vision.players.PatchStrategy` with 9 players
-            derived from the model's patch grid.
+            :class:`~shapiq.vision.players.PatchStrategy` sized to the model's
+            patch grid.
     """
 
     def __init__(
@@ -225,9 +225,11 @@ class TransformerArchitecture(ModelArchitectureStrategy):
         self._class_id: int | None = None
 
     def default_player_strategy(self) -> PatchStrategy:
-        """Return a patch player strategy with a 3x3 grid."""
+        """Return a patch player strategy sized to the model's patch grid."""
         grid_size = self._model.config.image_size // self._model.config.patch_size
-        return PatchStrategy(grid_size=grid_size, n_players=9)
+        return PatchStrategy(
+            grid_size=grid_size, n_players=PatchStrategy.default_n_players(grid_size)
+        )
 
     def default_masking_strategy(self) -> MaskTokenStrategy:
         """Return a token-masking strategy.
