@@ -125,6 +125,8 @@ class ImageExplainer(Explainer):
         self._imputer: ImageImputer = _imputer
 
         self._n_features: int = self._imputer.n_features
+        self._approximator_spec = approximator
+        self._random_state = random_state
 
         self._approximator: Approximator = setup_approximator(
             approximator=approximator,
@@ -158,16 +160,46 @@ class ImageExplainer(Explainer):
             An object of class :class:`~shapiq.interaction_values.InteractionValues` containing
             the computed interaction values.
         """
-        self.set_random_state(random_state)
-
         if x is not None:
             self._imputer.fit(x)
+            if self._imputer.n_features != self._n_features:
+                self._rebuild_approximator()
+
+        self.set_random_state(random_state)
+
         interaction_values = self._approximator.approximate(budget=budget, game=self._imputer)
         interaction_values.baseline_value = self.baseline_value
 
         if is_empty_value_the_baseline(interaction_values.index):
             interaction_values[()] = interaction_values.baseline_value
         return interaction_values
+
+    def _rebuild_approximator(self) -> None:
+        """Rebuild the approximator after the imputer's player count changed.
+
+        The imputer is a fixed-size game, so refitting to a new image can change
+        ``n_features`` (e.g. SLIC returns a different superpixel count). Reusing the
+        original approximator would then desync it from the game.
+        """
+        from shapiq.approximator.base import Approximator
+
+        if isinstance(self._approximator_spec, Approximator):
+            msg = (
+                "Cannot reuse this explainer across images with different player counts "
+                f"({self._n_features} -> {self._imputer.n_features}): a pre-built approximator "
+                "was supplied and cannot be resized. Construct a new ImageExplainer for this "
+                "image, or pass approximator='auto' (or a string) so it can be rebuilt."
+            )
+            raise ValueError(msg)
+
+        self._n_features = self._imputer.n_features
+        self._approximator = setup_approximator(
+            approximator=self._approximator_spec,
+            index=self.index,
+            max_order=self.max_order,
+            n_players=self._n_features,
+            random_state=self._random_state,
+        )
 
     @property
     def baseline_value(self) -> float:

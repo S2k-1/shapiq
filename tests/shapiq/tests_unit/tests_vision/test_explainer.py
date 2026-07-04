@@ -10,6 +10,7 @@ from shapiq.vision import ImageExplainer
 from shapiq.vision.architecture import CNNArchitecture
 from shapiq.vision.imputer import ImageImputer
 from shapiq.vision.masking import ZeroMasking
+from shapiq.vision.players import CNNPlayerStrategy
 
 from .conftest import ChannelSumModel, FixedMasksStrategy
 
@@ -20,6 +21,36 @@ def _build_arch(masks):
         masking_strategy=ZeroMasking(),
         player_strategy=FixedMasksStrategy(masks),
     )
+
+
+class ShapeKeyedStrategy(CNNPlayerStrategy):
+    """Player strategy whose player count depends on the image size.
+
+    Used to exercise reusing one explainer across images with different player
+    counts (mirroring how SLIC returns a varying superpixel count).
+    """
+
+    def __init__(self, players_by_hw: dict[tuple[int, int], int]) -> None:
+        self._players_by_hw = players_by_hw
+        self._n_players = 0
+
+    def get_masks(self, image: np.ndarray) -> np.ndarray:
+        h, w = image.shape[:2]
+        n = self._players_by_hw[(h, w)]
+        self._n_players = n
+        masks = np.zeros((n, h, w), dtype=bool)
+        edges = np.linspace(0, w, n + 1).astype(int)
+        for i in range(n):
+            masks[i, :, edges[i] : edges[i + 1]] = True
+        return masks
+
+    @property
+    def n_players(self) -> int:
+        return self._n_players
+
+
+def _image(hw: tuple[int, int], seed: int) -> np.ndarray:
+    return np.random.default_rng(seed).integers(0, 255, size=(*hw, 3)).astype(np.float64)
 
 
 class TestImageExplainer:
@@ -157,6 +188,36 @@ class TestImageExplainer:
             random_state=0,
         )
         assert "permutation" in type(explainer._approximator).__name__.lower()
+
+    def test_reuse_across_images_rebuilds_approximator(self) -> None:
+        strategy = ShapeKeyedStrategy({(4, 4): 2, (6, 6): 3})
+        arch = CNNArchitecture(
+            model=ChannelSumModel(), masking_strategy=ZeroMasking(), player_strategy=strategy
+        )
+        explainer = ImageExplainer(model=arch, data=_image((4, 4), 0), index="SV", random_state=0)
+        assert explainer._approximator.n == 2
+
+        result = explainer.explain_function(_image((6, 6), 1), budget=32)
+        assert result.n_players == 3
+        assert explainer._n_features == 3
+        assert explainer._approximator.n == 3
+        assert np.isfinite(result.values).all()
+
+    def test_reuse_with_prebuilt_approximator_raises(self) -> None:
+        from shapiq.approximator import KernelSHAP
+
+        strategy = ShapeKeyedStrategy({(4, 4): 2, (6, 6): 3})
+        arch = CNNArchitecture(
+            model=ChannelSumModel(), masking_strategy=ZeroMasking(), player_strategy=strategy
+        )
+        explainer = ImageExplainer(
+            model=arch,
+            data=_image((4, 4), 0),
+            index="SV",
+            approximator=KernelSHAP(n=2, random_state=0),
+        )
+        with pytest.raises(ValueError, match="different player counts"):
+            explainer.explain_function(_image((6, 6), 1), budget=32)
 
 
 class TestImageExplainerTransformer:

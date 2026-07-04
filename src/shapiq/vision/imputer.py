@@ -83,6 +83,12 @@ class ImageImputer(Imputer):
         self.architecture.prepare(self._image)
         self.n_features = self.architecture.n_players
 
+        self.n_players = self.n_features
+        self.empty_coalition = np.zeros(self.n_players, dtype=bool)
+        self.grand_coalition = np.ones(self.n_players, dtype=bool)
+        self._empty_coalition_value_property = None
+        self._grand_coalition_value_property = None
+
         self._x = np.zeros((1, self.n_features), dtype=bool)  # dummy data to satisfy base class
 
         self.empty_prediction = self.calc_empty_prediction()
