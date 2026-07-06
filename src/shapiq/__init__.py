@@ -89,6 +89,7 @@ from .utils import (  # sets.py  # tree.py
     split_subsets_budget,
 )
 
+
 def __getattr__(name: str) -> object:
     """Expose the optional vision explainer lazily so ``import shapiq`` stays torch-free."""
     if name == "ImageExplainer":
