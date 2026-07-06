@@ -71,14 +71,14 @@ class TestLazyImport:
 
     def test_attribute_access_resolves_real_classes(self):
         import shapiq
-        import shapiq.vision as vision
+        from shapiq import vision
         from shapiq.vision.players import PatchStrategy
 
         assert vision.PatchStrategy is PatchStrategy
         assert shapiq.ImageExplainer.__name__ == "ImageExplainer"
 
     def test_dir_lists_public_names(self):
-        import shapiq.vision as vision
+        from shapiq import vision
 
         listed = dir(vision)
         assert "ImageExplainer" in listed
@@ -86,7 +86,7 @@ class TestLazyImport:
 
     def test_unknown_attribute_raises(self):
         import shapiq
-        import shapiq.vision as vision
+        from shapiq import vision
 
         with pytest.raises(AttributeError):
             _ = vision.DefinitelyNotAThing
@@ -95,7 +95,7 @@ class TestLazyImport:
 
     def test_image_explainer_placeholder_when_torch_missing(self):
         """With torch absent, ``ImageExplainer`` resolves to a placeholder that raises."""
-        import shapiq.vision as vision
+        from shapiq import vision
 
         submodules = [
             "shapiq.vision.explainer",

@@ -216,7 +216,7 @@ class TestImageExplainer:
             index="SV",
             approximator=KernelSHAP(n=2, random_state=0),
         )
-        with pytest.raises(ValueError, match="different player counts"):
+        with pytest.raises(TypeError, match="different player counts"):
             explainer.explain_function(_image((6, 6), 1), budget=32)
 
 

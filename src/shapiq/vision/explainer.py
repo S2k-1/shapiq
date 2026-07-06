@@ -190,7 +190,7 @@ class ImageExplainer(Explainer):
                 "was supplied and cannot be resized. Construct a new ImageExplainer for this "
                 "image, or pass approximator='auto' (or a string) so it can be rebuilt."
             )
-            raise ValueError(msg)
+            raise TypeError(msg)
 
         self._n_features = self._imputer.n_features
         self._approximator = setup_approximator(
