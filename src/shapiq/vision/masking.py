@@ -30,10 +30,13 @@ class MaskingStrategy(ModelCompatible, ABC):
 
     Subclasses declare the coalition domain they accept via
     ``accepted_coalition_domain``. This is used to ensure the masking strategy
-    matches the player strategy that produced the coalitions.
+    matches the player strategy that produced the coalitions. Compatibility with
+    a model protocol is enforced via ``compatible_model_protocol``, default is 
+    ``VisionModel``.
     """
 
     accepted_coalition_domain: CoalitionDomain
+    compatible_model_protocol = VisionModel
 
 
 class CNNMaskingStrategy(MaskingStrategy, ABC):
