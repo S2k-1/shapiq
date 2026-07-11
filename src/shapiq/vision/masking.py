@@ -10,6 +10,8 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
+from shapiq.vision.validation import ModelCompatible
+
 try:
     import torch
 except ImportError as err:
@@ -17,17 +19,34 @@ except ImportError as err:
 
     raise _vision_import_error from err
 
+from .typing import CoalitionDomain, VisionModel, ViTLikeModel
+
 if TYPE_CHECKING:
     from shapiq.typing import Model
 
 
-class CNNMaskingStrategy(ABC):
+class MaskingStrategy(ModelCompatible, ABC):
+    """Base class for masking strategies with compatibility validation.
+
+    Subclasses declare the coalition domain they accept via
+    ``accepted_coalition_domain``. This is used to ensure the masking strategy
+    matches the player strategy that produced the coalitions.
+    """
+
+    accepted_coalition_domain: CoalitionDomain
+
+
+class CNNMaskingStrategy(MaskingStrategy, ABC):
     """Base class for pixel-space masking strategies used with CNN models.
 
     Implementations receive the original image as a ``(C, H, W)`` tensor and
     a coalition matrix, and return a batch of masked images ready for a
-    single forward pass through the model.
+    single forward pass through the model. ``accepted_coalition_domain`` is
+    ``CoalitionDomain.PIXEL``.
     """
+
+    accepted_coalition_domain: CoalitionDomain = CoalitionDomain.PIXEL
+    compatible_model_protocol = VisionModel
 
     @abstractmethod
     def apply(
@@ -118,12 +137,16 @@ class ZeroMasking(CNNMaskingStrategy):
         )
 
 
-class TransformerMaskingStrategy(ABC):
+class TransformerMaskingStrategy(MaskingStrategy, ABC):
     """Base class for token-space masking strategies used with ViT models.
 
     Implementations convert a coalition matrix into a ``bool_masked_pos``
     tensor suitable for passing directly to a ViT forward call.
+    ``accepted_coalition_domain`` is ``CoalitionDomain.TOKEN``.
     """
+
+    accepted_coalition_domain: CoalitionDomain = CoalitionDomain.TOKEN
+    compatible_model_protocol = ViTLikeModel
 
     @abstractmethod
     def apply(
@@ -206,9 +229,36 @@ class MaskTokenStrategy(TransformerMaskingStrategy):
         """
         self._model = model
 
+
+    @classmethod
+    def validate_model(cls, model: Model) -> None:
+        """Validate that ``model`` satisfies the declared protocol and exposes required attributes.
+
+        Args:
+            model: Object to validate against ``compatible_model_protocol`` and supports 
+                model.vit.embeddings.mask_token and model.config.hidden_size.
+
+        Raises:
+            TypeError: If ``model`` does not support the required attributes or is not 
+                compatible with the declared protocol.
+        """
+        super().validate_model(model)
+        try:
+            embeddings = model.vit.embeddings
+            _ = embeddings.mask_token
+            _ = model.config.hidden_size
+        except AttributeError as exc:
+            raise TypeError(
+                f"{cls.__name__} requires a model exposing ``vit.embeddings.mask_token`` "
+                "and ``config.hidden_size``."
+            ) from exc
+
+
     def apply(self, coalitions: torch.Tensor, token_masks: torch.Tensor) -> torch.Tensor:
         """Apply masking by setting the model's mask_token embedding to zero."""
         self._model.vit.embeddings.mask_token = torch.nn.Parameter(
             torch.zeros(1, 1, self._model.config.hidden_size)
         )
         return self._to_token_mask(coalitions, token_masks)
+
+

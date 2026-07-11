@@ -27,6 +27,7 @@ if TYPE_CHECKING:
 
     from .masking import (
         CNNMaskingStrategy,
+        MaskingStrategy,
         TransformerMaskingStrategy,
     )
     from .players import (
@@ -43,6 +44,27 @@ class ModelArchitectureStrategy(ABC):
     model type and implement batched coalition evaluation via
     :meth:`value_function`. Input images are converted to tensors after player masks are generated.
     """
+    _model: Model
+    _player_strategy: PlayerStrategy
+    _masking_strategy: MaskingStrategy
+
+    def _validate_configuration(self) -> None:
+        """Validate that model, player strategy, and masking strategy are compatible."""
+        type(self._player_strategy).validate_model(self._model)
+        type(self._masking_strategy).validate_model(self._model)
+
+        player_domain = self._player_strategy.coalition_domain
+        masking_domain = self._masking_strategy.accepted_coalition_domain
+
+        if self._player_strategy.coalition_domain is not self._masking_strategy.accepted_coalition_domain:
+            if player_domain is not masking_domain:
+                raise TypeError(
+                    "Player strategy and masking strategy are incompatible: "
+                    f"{type(self._player_strategy).__name__} uses coalition domain "
+                    f"{player_domain.value!r}, but "
+                    f"{type(self._masking_strategy).__name__} expects "
+                    f"{masking_domain.value!r}."
+                )
 
     @abstractmethod
     def default_player_strategy(self) -> PlayerStrategy:
@@ -101,15 +123,9 @@ class CNNArchitecture(ModelArchitectureStrategy):
     Players are defined in pixel space. Absent players are
     replaced by the masking strategy before the image batch is forwarded
     through the model.
-
-    Args:
-        model: A PyTorch CNN model (e.g. :class:`torchvision.models.ResNet`).
-        masking_strategy: Pixel-space masking strategy. Defaults to
-            :class:`~shapiq.vision.masking.MeanColorMasking`.
-        player_strategy: Player definition strategy. Defaults to
-            :class:`~shapiq.vision.players.SuperpixelStrategy` with 10
-            segments.
     """
+    _masking_strategy: CNNMaskingStrategy
+    _player_strategy: CNNPlayerStrategy
 
     def __init__(
         self,
@@ -117,10 +133,20 @@ class CNNArchitecture(ModelArchitectureStrategy):
         masking_strategy: CNNMaskingStrategy | None = None,
         player_strategy: CNNPlayerStrategy | None = None,
     ) -> None:
-        """Initialise the CNN architecture strategy."""
+        """Initialize the CNN architecture strategy.
+        
+        Args:
+            model: A PyTorch CNN model (e.g. :class:`torchvision.models.ResNet`).
+            masking_strategy: Pixel-space masking strategy. Defaults to
+                :class:`~shapiq.vision.masking.MeanColorMasking`.
+            player_strategy: Player definition strategy. Defaults to
+                :class:`~shapiq.vision.players.SuperpixelStrategy` with 10
+                segments.
+        """
         self._model = model
         self._masking_strategy = masking_strategy or self.default_masking_strategy()
         self._player_strategy = player_strategy or self.default_player_strategy()
+        self._validate_configuration()
         self._player_masks: torch.Tensor
         self._image_tensor: torch.Tensor
         self._class_id: int | None = None
@@ -195,17 +221,9 @@ class TransformerArchitecture(ModelArchitectureStrategy):
 
     Players correspond to groups of patch tokens. Absent players are masked
     in token space via ``bool_masked_pos`` before the forward pass.
-
-    Args:
-        model: A vision transformer model.
-        vit_processor: The matching processor used to preprocess
-            the image into ``pixel_values``.
-        masking_strategy: Token-space masking strategy. Defaults to
-            :class:`~shapiq.vision.masking.MaskTokenStrategy`.
-        player_strategy: Player definition strategy. Defaults to
-            :class:`~shapiq.vision.players.PatchStrategy` sized to the model's
-            patch grid.
     """
+    _masking_strategy: TransformerMaskingStrategy
+    _player_strategy: TransformerPlayerStrategy
 
     def __init__(
         self,
@@ -214,11 +232,23 @@ class TransformerArchitecture(ModelArchitectureStrategy):
         masking_strategy: TransformerMaskingStrategy | None = None,
         player_strategy: TransformerPlayerStrategy | None = None,
     ) -> None:
-        """Initialise the Transformer architecture strategy."""
+        """Initialize the Transformer architecture strategy.
+        
+        Args:
+            model: A vision transformer model.
+            vit_processor: The matching processor used to preprocess
+                the image into ``pixel_values``.
+            masking_strategy: Token-space masking strategy. Defaults to
+                :class:`~shapiq.vision.masking.MaskTokenStrategy`.
+            player_strategy: Player definition strategy. Defaults to
+                :class:`~shapiq.vision.players.PatchStrategy` sized to the model's
+                patch grid.
+        """
         self._model = model
         self.processor = vit_processor
         self._masking_strategy = masking_strategy or self.default_masking_strategy()
         self._player_strategy = player_strategy or self.default_player_strategy()
+        self._validate_configuration()
         self._pixel_values: torch.Tensor
         self._player_masks: torch.Tensor
         self._token_masks: torch.Tensor
