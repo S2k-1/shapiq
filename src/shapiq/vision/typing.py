@@ -1,3 +1,4 @@
+"""This module contains all custom types used in the shapiq vision subpackage."""
 
 from __future__ import annotations
 
@@ -12,7 +13,7 @@ class CoalitionDomain(Enum):
     """Enumeration of coalition domains used by players and masking strategies."""
 
     PIXEL = "pixel"
-    TOKEN = "token"
+    TOKEN = "token"  # noqa: S105
 
 
 @runtime_checkable
@@ -20,6 +21,7 @@ class VisionModel(Protocol):
     """Protocol for vision models called directly on image tensors."""
 
     def __call__(self, x: torch.Tensor) -> torch.Tensor | ClassificationOutput: ...
+
 
 @runtime_checkable
 class ClassificationOutput(Protocol):
@@ -37,5 +39,4 @@ class ViTLikeModel(Protocol):
         pixel_values: torch.Tensor,
         bool_masked_pos: torch.BoolTensor | None = None,
         **kwargs: Any,
-    ) -> ClassificationOutput:
-        ...
+    ) -> ClassificationOutput: ...

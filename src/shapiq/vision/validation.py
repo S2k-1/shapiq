@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from shapiq.typing import Model
 
+
 class ModelCompatible:
     """Trait for strategies that validate a compatible model protocol.
 
@@ -22,9 +23,7 @@ class ModelCompatible:
         super().__init_subclass__(**kwargs)
         if not hasattr(cls, "compatible_model_protocol"):
             msg = f"{cls.__name__} must define 'compatible_model_protocol'."
-            raise TypeError(
-                msg
-            )
+            raise TypeError(msg)
 
     @classmethod
     def validate_model(cls, model: Model) -> None:
@@ -49,6 +48,4 @@ class ModelCompatible:
                 f"{cls.__name__} requires a model compatible with {expected}, "
                 f"got {type(model).__name__}."
             )
-            raise TypeError(
-                msg
-            )
+            raise TypeError(msg)

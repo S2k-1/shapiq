@@ -44,6 +44,7 @@ class ModelArchitectureStrategy(ABC):
     model type and implement batched coalition evaluation via
     :meth:`value_function`. Input images are converted to tensors after player masks are generated.
     """
+
     _model: Model
     _player_strategy: PlayerStrategy
     _masking_strategy: MaskingStrategy
@@ -56,17 +57,19 @@ class ModelArchitectureStrategy(ABC):
         player_domain = self._player_strategy.coalition_domain
         masking_domain = self._masking_strategy.accepted_coalition_domain
 
-        if self._player_strategy.coalition_domain is not self._masking_strategy.accepted_coalition_domain and player_domain is not masking_domain:
-                msg = (
-                    "Player strategy and masking strategy are incompatible: "
-                    f"{type(self._player_strategy).__name__} uses coalition domain "
-                    f"{player_domain.value!r}, but "
-                    f"{type(self._masking_strategy).__name__} expects "
-                    f"{masking_domain.value!r}."
-                )
-                raise TypeError(
-                    msg
-                )
+        if (
+            self._player_strategy.coalition_domain
+            is not self._masking_strategy.accepted_coalition_domain
+            and player_domain is not masking_domain
+        ):
+            msg = (
+                "Player strategy and masking strategy are incompatible: "
+                f"{type(self._player_strategy).__name__} uses coalition domain "
+                f"{player_domain.value!r}, but "
+                f"{type(self._masking_strategy).__name__} expects "
+                f"{masking_domain.value!r}."
+            )
+            raise TypeError(msg)
 
     @abstractmethod
     def default_player_strategy(self) -> PlayerStrategy:
@@ -126,6 +129,7 @@ class CNNArchitecture(ModelArchitectureStrategy):
     replaced by the masking strategy before the image batch is forwarded
     through the model.
     """
+
     _masking_strategy: CNNMaskingStrategy
     _player_strategy: CNNPlayerStrategy
 
@@ -224,6 +228,7 @@ class TransformerArchitecture(ModelArchitectureStrategy):
     Players correspond to groups of patch tokens. Absent players are masked
     in token space via ``bool_masked_pos`` before the forward pass.
     """
+
     _masking_strategy: TransformerMaskingStrategy
     _player_strategy: TransformerPlayerStrategy
 
