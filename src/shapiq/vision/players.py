@@ -36,8 +36,8 @@ class PlayerStrategy(ModelCompatible, ABC):
 
     A player strategy encapsulates the rule by which an image is divided into
     ``n_players`` disjoint regions. Subclasses declare the coalition domain
-    they produce via ``coalition_domain``, e.g. ``CoalitionDomain.PIXEL`` 
-    for pixel-space strategies and ``CoalitionDomain.TOKEN`` for token-space 
+    they produce via ``coalition_domain``, e.g. ``CoalitionDomain.PIXEL``
+    for pixel-space strategies and ``CoalitionDomain.TOKEN`` for token-space
     strategies.
     """
 
@@ -91,7 +91,7 @@ class CustomPlayerStrategy(CNNPlayerStrategy):
 
     def __init__(self, masks: np.ndarray) -> None:
         """Initialize the strategy with pre-computed masks.
-        
+
         Args:
             masks: either: Array of shape ``(n_players, H, W)``. Any dtype is accepted and
                 will be cast to ``bool``. Should be evaluated to ``True`` for pixels
@@ -211,7 +211,7 @@ class GridStrategy(CNNPlayerStrategy):
         grid_shape: int | tuple[int, int] | None = None,
     ) -> None:
         """Initialize the strategy with either a patch size or grid shape.
-        
+
         Args:
             patch_size: ``(patch_height, patch_width)`` or a single int for square
                 patches. The grid shape is inferred from the image.
@@ -474,11 +474,11 @@ class PatchStrategy(TransformerPlayerStrategy):
 
     def __init__(self, grid_size: int, n_players: int) -> None:
         """Initialize the strategy with the grid size and number of players.
-        
+
         Args:
             grid_size: The number of tokens along one axis of the square grid.
             n_players: The number of players (patches) to divide the grid into.
-            
+
         Raises:
             ValueError: If ``n_players`` is not a perfect square or if
                 ``grid_size`` is not divisible by the square root of ``n_players``.

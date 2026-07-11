@@ -56,14 +56,16 @@ class ModelArchitectureStrategy(ABC):
         player_domain = self._player_strategy.coalition_domain
         masking_domain = self._masking_strategy.accepted_coalition_domain
 
-        if self._player_strategy.coalition_domain is not self._masking_strategy.accepted_coalition_domain:
-            if player_domain is not masking_domain:
-                raise TypeError(
+        if self._player_strategy.coalition_domain is not self._masking_strategy.accepted_coalition_domain and player_domain is not masking_domain:
+                msg = (
                     "Player strategy and masking strategy are incompatible: "
                     f"{type(self._player_strategy).__name__} uses coalition domain "
                     f"{player_domain.value!r}, but "
                     f"{type(self._masking_strategy).__name__} expects "
                     f"{masking_domain.value!r}."
+                )
+                raise TypeError(
+                    msg
                 )
 
     @abstractmethod
@@ -134,7 +136,7 @@ class CNNArchitecture(ModelArchitectureStrategy):
         player_strategy: CNNPlayerStrategy | None = None,
     ) -> None:
         """Initialize the CNN architecture strategy.
-        
+
         Args:
             model: A PyTorch CNN model (e.g. :class:`torchvision.models.ResNet`).
             masking_strategy: Pixel-space masking strategy. Defaults to
@@ -233,7 +235,7 @@ class TransformerArchitecture(ModelArchitectureStrategy):
         player_strategy: TransformerPlayerStrategy | None = None,
     ) -> None:
         """Initialize the Transformer architecture strategy.
-        
+
         Args:
             model: A vision transformer model.
             vit_processor: The matching processor used to preprocess

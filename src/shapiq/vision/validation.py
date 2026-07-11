@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from shapiq.typing import Model
@@ -17,12 +17,13 @@ class ModelCompatible:
 
     compatible_model_protocol: type | tuple[type, ...]
 
-    def __init_subclass__(cls, **kwargs):
+    def __init_subclass__(cls, **kwargs: Any) -> None:
         """Ensure subclasses declare a compatible model protocol."""
         super().__init_subclass__(**kwargs)
         if not hasattr(cls, "compatible_model_protocol"):
+            msg = f"{cls.__name__} must define 'compatible_model_protocol'."
             raise TypeError(
-                f"{cls.__name__} must define 'compatible_model_protocol'."
+                msg
             )
 
     @classmethod
@@ -44,7 +45,10 @@ class ModelCompatible:
             else:
                 expected = protocol.__name__
 
-            raise TypeError(
+            msg = (
                 f"{cls.__name__} requires a model compatible with {expected}, "
                 f"got {type(model).__name__}."
+            )
+            raise TypeError(
+                msg
             )

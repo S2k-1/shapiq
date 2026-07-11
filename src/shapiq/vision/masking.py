@@ -235,11 +235,11 @@ class MaskTokenStrategy(TransformerMaskingStrategy):
         """Validate that ``model`` satisfies the declared protocol and exposes required attributes.
 
         Args:
-            model: Object to validate against ``compatible_model_protocol`` and supports 
+            model: Object to validate against ``compatible_model_protocol`` and supports
                 model.vit.embeddings.mask_token and model.config.hidden_size.
 
         Raises:
-            TypeError: If ``model`` does not support the required attributes or is not 
+            TypeError: If ``model`` does not support the required attributes or is not
                 compatible with the declared protocol.
         """
         super().validate_model(model)
@@ -248,9 +248,12 @@ class MaskTokenStrategy(TransformerMaskingStrategy):
             _ = embeddings.mask_token
             _ = model.config.hidden_size
         except AttributeError as exc:
-            raise TypeError(
+            msg = (
                 f"{cls.__name__} requires a model exposing ``vit.embeddings.mask_token`` "
                 "and ``config.hidden_size``."
+            )
+            raise TypeError(
+                msg
             ) from exc
 
 

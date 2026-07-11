@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
-import torch
+if TYPE_CHECKING:
+    import torch
 
 
 class CoalitionDomain(Enum):
