@@ -33,6 +33,7 @@ class ClassificationOutput(Protocol):
 @runtime_checkable
 class ViTLikeModel(Protocol):
     """Protocol for ViT-like models supporting token masking via bool_masked_pos."""
+    config: Any
 
     def __call__(
         self,

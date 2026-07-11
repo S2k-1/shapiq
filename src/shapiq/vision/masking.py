@@ -231,6 +231,7 @@ class MaskTokenStrategy(TransformerMaskingStrategy):
                 parameter.
         """
         self._model = model
+        type(self).validate_model(model)
 
     @classmethod
     def validate_model(cls, model: Model) -> None:
@@ -249,12 +250,12 @@ class MaskTokenStrategy(TransformerMaskingStrategy):
             embeddings = model.vit.embeddings
             _ = embeddings.mask_token
             _ = model.config.hidden_size
-        except AttributeError as exc:
+        except AttributeError:
             msg = (
                 f"{cls.__name__} requires a model exposing ``vit.embeddings.mask_token`` "
                 "and ``config.hidden_size``."
             )
-            raise TypeError(msg) from exc
+            raise TypeError(msg) from None
 
     def apply(self, coalitions: torch.Tensor, token_masks: torch.Tensor) -> torch.Tensor:
         """Apply masking by setting the model's mask_token embedding to zero."""
