@@ -296,8 +296,10 @@ class TransformerArchitecture(ModelArchitectureStrategy):
         """
         self._model = model
         self.processor = processor
-        self._masking_strategy = masking_strategy or self.default_masking_strategy()
+        # Resolve the player default first: on a non-ViT model its unresolvable
+        # token grid explains the problem better than a missing mask_token slot.
         self._player_strategy = player_strategy or self.default_player_strategy()
+        self._masking_strategy = masking_strategy or self.default_masking_strategy()
         self._validate_configuration()
         self._pixel_values: torch.Tensor
         self._player_masks: torch.Tensor
