@@ -9,6 +9,7 @@ mocks below reproduce both behaviors without requiring ``transformers``.
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import ClassVar
 
 import numpy as np
 import pytest
@@ -33,7 +34,7 @@ from .conftest import ChannelSumModel
 class FakeProcessor:
     """HF-style processor mock: HWC uint8 image(s) -> (B, C, H, W) float pixel_values."""
 
-    size = {"height": 32}
+    size: ClassVar[dict[str, int]] = {"height": 32}
 
     def __call__(self, images, return_tensors="pt"):
         if not isinstance(images, list):

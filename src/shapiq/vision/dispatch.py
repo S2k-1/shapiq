@@ -28,6 +28,8 @@ except ImportError as err:
     raise _vision_import_error from err
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     from shapiq.typing import Model
 
     from .architecture import ModelArchitectureStrategy
@@ -49,7 +51,7 @@ def embeddings_of(model: Model) -> Model | None:
     return getattr(base_module_of(model), "embeddings", None)
 
 
-def _iter_configs(config: object):
+def _iter_configs(config: object) -> Iterator[object]:
     """Yield ``config`` followed by nested sub-configs (e.g. ``vision_config``)."""
     yield config
     vision_config = getattr(config, "vision_config", None)
@@ -69,7 +71,7 @@ def _search_config(config: object, *keys: str) -> int | None:
     for cfg in _iter_configs(config):
         for key in keys:
             value = getattr(cfg, key, None)
-            if isinstance(value, (tuple, list)) and value:
+            if isinstance(value, tuple | list) and value:
                 value = value[0]
             if isinstance(value, int) and value > 0:
                 return value
