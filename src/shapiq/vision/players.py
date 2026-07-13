@@ -38,7 +38,7 @@ class PlayerStrategy(ModelCompatible, ABC):
     ``n_players`` disjoint regions. Subclasses declare the coalition domain
     they produce via ``coalition_domain``, e.g. ``CoalitionDomain.PIXEL``
     for pixel-space strategies and ``CoalitionDomain.TOKEN`` for token-space
-    strategies. Compatibility with a model protocol is enforced via 
+    strategies. Compatibility with a model protocol is enforced via
     ``compatible_model_protocol``, default is ``VisionModel``.
     """
 
