@@ -174,13 +174,9 @@ def ensure_zero_mask_token(model: Model) -> bool:
     if dim is None:
         return False
     device = get_torch_device(model)
-    dtype = torch.float32
     parameters = getattr(model, "parameters", None)
-    if callable(parameters):
-        try:
-            dtype = next(parameters()).dtype
-        except StopIteration:
-            pass
+    first_param = next(parameters(), None) if callable(parameters) else None
+    dtype = first_param.dtype if first_param is not None else torch.float32
     embeddings.mask_token = torch.nn.Parameter(
         torch.zeros(1, 1, dim, device=device, dtype=dtype), requires_grad=False
     )
