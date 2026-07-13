@@ -19,7 +19,7 @@ except ImportError as err:
 
     raise _vision_import_error from err
 
-from .typing import CoalitionDomain, VisionModel, ViTLikeModel
+from .custom_types import CoalitionDomain, VisionModel, ViTLikeModel
 
 if TYPE_CHECKING:
     from shapiq.typing import Model
