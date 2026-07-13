@@ -55,17 +55,3 @@ class ViTLikeModel(Protocol):
     ) -> ClassificationOutput:
         """Run inference on preprocessed pixel values, optionally masking tokens."""
         ...
-
-
-@runtime_checkable
-class ImageProcessorLike(Protocol):
-    """Protocol for Hugging Face-style image processors.
-
-    Matches any callable that turns raw images into a mapping containing
-    ``pixel_values`` (e.g. :class:`transformers.ViTImageProcessor` or any
-    ``AutoImageProcessor`` result).
-    """
-
-    def __call__(self, images: object, return_tensors: str = ..., **kwargs: object) -> object:
-        """Convert raw image(s) into a mapping containing ``pixel_values``."""
-        ...
