@@ -39,14 +39,27 @@ class TestPatchStrategy:
         with pytest.raises(ValueError, match="divisible"):
             PatchStrategy(grid_size=14, n_players=9)
 
+    def test_default_path_works_for_vit_b16_grid(self) -> None:
+        """Regression: the default player count must never crash ViT-B/16's 14x14 grid.
+
+        The hard-coded 3x3 default used to raise ValueError on construction
+        because 14 % 3 != 0; ``default_n_players`` must adapt to the grid.
+        """
+        n_players = PatchStrategy.default_n_players(14)
+        strategy = PatchStrategy(grid_size=14, n_players=n_players)
+        assert n_players == 4  # 2x2 grid: the divisor of 14 whose square is closest to 9
+        token_masks = strategy.get_token_masks()
+        np.testing.assert_array_equal(np.unique(token_masks), np.arange(14 * 14))
+
     @pytest.mark.parametrize(
         ("grid_size", "expected"),
-        [(3, 9), (6, 9), (12, 9), (14, 4), (16, 4), (7, 49)],
+        [(1, 1), (2, 4), (3, 9), (6, 9), (12, 9), (14, 4), (16, 4), (7, 49)],
     )
     def test_default_n_players_is_constructible(self, grid_size, expected) -> None:
         n_players = PatchStrategy.default_n_players(grid_size)
         assert n_players == expected
         strategy = PatchStrategy(grid_size=grid_size, n_players=n_players)
+        assert strategy.n_players == n_players
         assert grid_size % strategy.side == 0
 
     def test_get_token_masks_shape(self) -> None:
