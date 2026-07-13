@@ -35,6 +35,17 @@ def _to_numpy(tensor: torch.Tensor) -> np.ndarray:
     return tensor.detach().cpu().numpy()
 
 
+class _BareViT:
+    """Config-only ViT-B/16 stand-in with the minimal ViT-like surface."""
+
+    def __init__(self) -> None:
+        self.config = SimpleNamespace(image_size=224, patch_size=16, hidden_size=768)
+        self.embeddings = SimpleNamespace(mask_token=None)
+
+    def __call__(self, pixel_values=None, bool_masked_pos=None, **_):
+        return SimpleNamespace(logits=torch.zeros(1, 2))
+
+
 class TestCNNArchitecture:
     def test_is_architecture_strategy(self) -> None:
         arch = CNNArchitecture(model=ChannelSumModel())
@@ -134,34 +145,28 @@ class TestCNNArchitecture:
 
 class TestTransformerArchitecture:
     def test_is_architecture_strategy(self) -> None:
-        arch = TransformerArchitecture(model=MockViT(), vit_processor=MockViTProcessor())
+        arch = TransformerArchitecture(model=MockViT(), processor=MockViTProcessor())
         assert isinstance(arch, ModelArchitectureStrategy)
 
     def test_default_player_strategy_uses_model_config(self) -> None:
-        arch = TransformerArchitecture(model=MockViT(), vit_processor=MockViTProcessor())
+        arch = TransformerArchitecture(model=MockViT(), processor=MockViTProcessor())
         strategy = arch.default_player_strategy()
         assert isinstance(strategy, PatchStrategy)
         assert strategy.grid_size == 3  # 24 // 8
         assert strategy.n_players == 9
 
     def test_default_masking_strategy(self) -> None:
-        arch = TransformerArchitecture(model=MockViT(), vit_processor=MockViTProcessor())
+        arch = TransformerArchitecture(model=MockViT(), processor=MockViTProcessor())
         assert isinstance(arch.default_masking_strategy(), MaskTokenStrategy)
 
     def test_init_succeeds_for_standard_vit(self) -> None:
         """ViT-B/16 uses a 14x14 token grid; construction must not raise on the default."""
-        model = SimpleNamespace(
-            config=SimpleNamespace(image_size=224, patch_size=16, hidden_size=768)
-        )
-        arch = TransformerArchitecture(model=model, vit_processor=object())
+        arch = TransformerArchitecture(model=_BareViT(), processor=object())
         assert isinstance(arch.default_player_strategy(), PatchStrategy)
 
     def test_default_player_strategy_adapts_to_standard_vit_grid(self) -> None:
         """``default_player_strategy()`` yields a valid grid for ViT-B/16's 14x14 tokens."""
-        model = SimpleNamespace(
-            config=SimpleNamespace(image_size=224, patch_size=16, hidden_size=768)
-        )
-        arch = TransformerArchitecture(model=model, vit_processor=object())
+        arch = TransformerArchitecture(model=_BareViT(), processor=object())
         strategy = arch.default_player_strategy()
         assert strategy.grid_size == 14
         assert strategy.n_players == 4
@@ -170,7 +175,7 @@ class TestTransformerArchitecture:
     def test_prepare_sets_class_id_and_caches_state(self, image_24x24) -> None:
         arch = TransformerArchitecture(
             model=MockViT(),
-            vit_processor=MockViTProcessor(),
+            processor=MockViTProcessor(),
             masking_strategy=BoolMaskedPosStrategy(),
         )
         arch.prepare(image_24x24)
@@ -182,7 +187,7 @@ class TestTransformerArchitecture:
     def test_prepare_class_index_overrides_argmax(self, image_24x24) -> None:
         arch = TransformerArchitecture(
             model=MockViT(),
-            vit_processor=MockViTProcessor(),
+            processor=MockViTProcessor(),
             masking_strategy=BoolMaskedPosStrategy(),
         )
         arch.prepare(image_24x24, class_index=1)
@@ -191,7 +196,7 @@ class TestTransformerArchitecture:
     def test_value_function_shape_and_monotonicity(self, image_24x24) -> None:
         arch = TransformerArchitecture(
             model=MockViT(),
-            vit_processor=MockViTProcessor(),
+            processor=MockViTProcessor(),
             masking_strategy=BoolMaskedPosStrategy(),
         )
         arch.prepare(image_24x24)
@@ -212,7 +217,7 @@ class TestTransformerArchitecture:
     def test_value_function_empty_coalition_is_half(self, image_24x24) -> None:
         arch = TransformerArchitecture(
             model=MockViT(),
-            vit_processor=MockViTProcessor(),
+            processor=MockViTProcessor(),
             masking_strategy=BoolMaskedPosStrategy(),
         )
         arch.prepare(image_24x24)
@@ -224,7 +229,7 @@ class TestTransformerArchitecture:
         model = MockViT()
         arch = TransformerArchitecture(
             model=model,
-            vit_processor=MockViTProcessor(),
+            processor=MockViTProcessor(),
             masking_strategy=MaskTokenStrategy(model),
         )
         arch.prepare(image_24x24)

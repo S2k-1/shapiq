@@ -167,8 +167,8 @@ class TestBoolMaskedPosStrategy:
 class _MockViTWithMaskToken:
     """Minimal ViT mock satisfying :class:`MaskTokenStrategy`'s requirements.
 
-    ``MaskTokenStrategy`` reads ``model.config.hidden_size`` to create the zero
-    tensor and overwrites ``model.vit.embeddings.mask_token``.
+    ``MaskTokenStrategy`` locates the backbone embeddings through
+    ``base_model`` and zeroes ``embeddings.mask_token`` in place.
     """
 
     class _Config:
@@ -180,6 +180,10 @@ class _MockViTWithMaskToken:
         self.vit = SimpleNamespace(
             embeddings=SimpleNamespace(mask_token=torch.nn.Parameter(torch.ones(1, 1, 4)))
         )
+        self.base_model = self.vit
+
+    def __call__(self, pixel_values=None, bool_masked_pos=None, **_):
+        return SimpleNamespace(logits=torch.zeros(1, 2))
 
 
 class TestMaskTokenStrategy:

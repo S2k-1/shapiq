@@ -1,7 +1,9 @@
 """Architecture strategies for vision model inference.
 
-Each strategy encapsulates a model type (CNN or Vision Transformer), its
+Each strategy encapsulates a model type (CNN-like or ViT-like), its
 default player and masking strategies and batched coalition evaluation.
+Use :func:`~shapiq.vision.dispatch.resolve_architecture` to pick a strategy
+automatically for a raw model.
 """
 
 from __future__ import annotations
@@ -9,6 +11,9 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
+import numpy as np
+
+from .dispatch import extract_logits, resolve_patch_grid
 from .masking import MaskTokenStrategy, MeanColorMasking
 from .players import PatchStrategy, SuperpixelStrategy
 from .utils import get_torch_device, to_tensor_chw
@@ -21,8 +26,6 @@ except ImportError as err:
     raise _vision_import_error from err
 
 if TYPE_CHECKING:
-    import numpy as np
-
     from shapiq.typing import Model
 
     from .masking import (
@@ -123,11 +126,16 @@ class ModelArchitectureStrategy(ABC):
 
 
 class CNNArchitecture(ModelArchitectureStrategy):
-    """Architecture strategy for CNN models (e.g. ResNet) using pixel-space masking.
+    """Architecture strategy for CNN-like models using pixel-space masking.
 
-    Players are defined in pixel space. Absent players are
-    replaced by the masking strategy before the image batch is forwarded
-    through the model.
+    Players are defined in pixel space. Absent players are replaced by the
+    masking strategy before the image batch is forwarded through the model.
+
+    This is also the fallback path for Hugging Face models that do not
+    support token masking (e.g. Swin, BEiT, MobileViT, LeViT, CvT,
+    SegFormer): pass the matching ``processor`` and each masked image is
+    preprocessed with it before the forward pass, with logits read from the
+    output object.
     """
 
     _masking_strategy: CNNMaskingStrategy
@@ -138,18 +146,27 @@ class CNNArchitecture(ModelArchitectureStrategy):
         model: Model,
         masking_strategy: CNNMaskingStrategy | None = None,
         player_strategy: CNNPlayerStrategy | None = None,
+        processor: Model | None = None,
     ) -> None:
         """Initialize the CNN architecture strategy.
 
         Args:
-            model: A PyTorch CNN model (e.g. :class:`torchvision.models.ResNet`).
+            model: A model evaluated on image batches — a PyTorch CNN
+                (e.g. :class:`torchvision.models.ResNet`) called directly on
+                the masked tensor, or any Hugging Face image classification
+                model when ``processor`` is given.
             masking_strategy: Pixel-space masking strategy. Defaults to
                 :class:`~shapiq.vision.masking.MeanColorMasking`.
             player_strategy: Player definition strategy. Defaults to
                 :class:`~shapiq.vision.players.SuperpixelStrategy` with 10
                 segments.
+            processor: Optional Hugging Face image processor. When given,
+                masking happens on the original image and every masked image
+                is preprocessed with the processor (resize, normalize) before
+                being forwarded as ``pixel_values``.
         """
         self._model = model
+        self._processor = processor
         self._masking_strategy = masking_strategy or self.default_masking_strategy()
         self._player_strategy = player_strategy or self.default_player_strategy()
         self._validate_configuration()
@@ -176,18 +193,41 @@ class CNNArchitecture(ModelArchitectureStrategy):
             class_index: Index of the class to explain.
         """
         device = get_torch_device(self._model)
-        self._image_tensor = to_tensor_chw(image, device=device)
+        if self._processor is not None:
+            # Keep the image in its natural 0-255 range so masked images can
+            # round-trip through the processor as uint8 arrays.
+            arr = image.astype(np.float32)
+            if image.dtype != np.uint8 and arr.size > 0 and arr.max() <= 1.0:
+                arr = arr * 255.0
+            self._image_tensor = torch.from_numpy(arr).permute(2, 0, 1).to(device)
+        else:
+            self._image_tensor = to_tensor_chw(image, device=device)
         self._player_masks = torch.from_numpy(self._player_strategy.get_masks(image)).to(device)
 
-        if not self._class_id and not class_index:
-            with torch.no_grad():
-                logits = self._model(self._image_tensor.unsqueeze(0))
-            self._class_id = int(logits.argmax(dim=1).item())
-        elif class_index is not None:
+        if class_index is not None:
             self._class_id = class_index
+        elif self._class_id is None:
+            with torch.no_grad():
+                logits = self._forward(self._image_tensor.unsqueeze(0))
+            self._class_id = int(logits.argmax(dim=1).item())
+
+    def _forward(self, batch: torch.Tensor) -> torch.Tensor:
+        """Forward a ``(B, C, H, W)`` image batch and return ``(B, n_classes)`` logits.
+
+        Without a processor the batch goes straight into the model. With a
+        processor, each image is converted back to a uint8 ``(H, W, C)`` array
+        and preprocessed before the forward pass.
+        """
+        if self._processor is None:
+            return extract_logits(self._model(batch))
+
+        arrays = batch.clamp(0.0, 255.0).round().to(torch.uint8).permute(0, 2, 3, 1).cpu().numpy()
+        inputs = self._processor(images=list(arrays), return_tensors="pt")
+        pixel_values = inputs["pixel_values"].to(get_torch_device(self._model))
+        return extract_logits(self._model(pixel_values=pixel_values))
 
     def value_function(self, coalitions: torch.Tensor) -> torch.Tensor:
-        """Evaluate the CNN for a batch of coalitions.
+        """Evaluate the model for a batch of coalitions.
 
         Creates masked image tensors via the masking strategy in a single
         batched model call.
@@ -201,9 +241,11 @@ class CNNArchitecture(ModelArchitectureStrategy):
         """
         with torch.no_grad():
             masked_batch = self._masking_strategy.apply(
-                self._image_tensor, self._player_masks, coalitions
+                self._image_tensor,
+                self._player_masks,
+                coalitions.to(self._player_masks.device),
             )
-            logits = self._model(masked_batch)
+            logits = self._forward(masked_batch)
         return logits[:, self._class_id]
 
     @property
@@ -223,7 +265,7 @@ class CNNArchitecture(ModelArchitectureStrategy):
 
 
 class TransformerArchitecture(ModelArchitectureStrategy):
-    """Architecture strategy for Vision Transformer models using latent-space masking.
+    """Architecture strategy for ViT-like models using latent-space masking.
 
     Players correspond to groups of patch tokens. Absent players are masked
     in token space via ``bool_masked_pos`` before the forward pass.
@@ -235,15 +277,16 @@ class TransformerArchitecture(ModelArchitectureStrategy):
     def __init__(
         self,
         model: Model,
-        vit_processor: Model,
+        processor: Model,
         masking_strategy: TransformerMaskingStrategy | None = None,
         player_strategy: TransformerPlayerStrategy | None = None,
     ) -> None:
         """Initialize the Transformer architecture strategy.
 
         Args:
-            model: A vision transformer model.
-            vit_processor: The matching processor used to preprocess
+            model: A vision transformer model whose output responds to
+                ``bool_masked_pos``.
+            processor: The matching image processor used to preprocess
                 the image into ``pixel_values``.
             masking_strategy: Token-space masking strategy. Defaults to
                 :class:`~shapiq.vision.masking.MaskTokenStrategy`.
@@ -252,7 +295,7 @@ class TransformerArchitecture(ModelArchitectureStrategy):
                 patch grid.
         """
         self._model = model
-        self.processor = vit_processor
+        self.processor = processor
         self._masking_strategy = masking_strategy or self.default_masking_strategy()
         self._player_strategy = player_strategy or self.default_player_strategy()
         self._validate_configuration()
@@ -262,8 +305,23 @@ class TransformerArchitecture(ModelArchitectureStrategy):
         self._class_id: int | None = None
 
     def default_player_strategy(self) -> PatchStrategy:
-        """Return a patch player strategy sized to the model's patch grid."""
-        grid_size = self._model.config.image_size // self._model.config.patch_size
+        """Return a patch player strategy sized to the model's patch grid.
+
+        The grid is resolved from the processor's output size and the model
+        config (including nested configs such as ``config.vision_config``).
+
+        Raises:
+            TypeError: If the patch grid cannot be determined; pass a
+                ``player_strategy`` explicitly in that case.
+        """
+        grid_size = resolve_patch_grid(self._model, self.processor)
+        if grid_size is None:
+            msg = (
+                f"Could not determine the token grid of {type(self._model).__name__} from its "
+                "config/processor. Pass player_strategy=PatchStrategy(grid_size=..., "
+                "n_players=...) explicitly."
+            )
+            raise TypeError(msg)
         return PatchStrategy(
             grid_size=grid_size, n_players=PatchStrategy.default_n_players(grid_size)
         )
@@ -272,7 +330,7 @@ class TransformerArchitecture(ModelArchitectureStrategy):
         """Return a token-masking strategy.
 
         Note:
-            ``ViTForImageClassification`` has ``mask_token=None`` by default;
+            Classification models usually have ``mask_token=None``;
             :class:`~shapiq.vision.masking.MaskTokenStrategy` initialises it.
         """
         return MaskTokenStrategy(self._model)
@@ -280,30 +338,53 @@ class TransformerArchitecture(ModelArchitectureStrategy):
     def prepare(self, image: np.ndarray, class_index: int | None = None) -> None:
         """Cache pixel values, token masks, pixel masks, and predicted class index.
 
-        Passes ``image`` directly to the ViT processor (which expects
+        Passes ``image`` directly to the image processor (which expects
         a numpy ``(H, W, C)`` or PIL image), places the resulting
         ``pixel_values`` tensor on the model's device, and runs one forward
-        pass to determine the predicted class index.
+        pass to determine the predicted class index. A second, fully masked
+        forward pass verifies that the model actually honors
+        ``bool_masked_pos`` — models that silently ignore it would otherwise
+        yield constant (meaningless) attributions.
 
         Args:
             image: Input image as a ``(H, W, C)`` numpy array.
             class_index: Index of the class to explain.
+
+        Raises:
+            ValueError: If masking all tokens does not change the model
+                output, i.e. the model ignores ``bool_masked_pos``.
         """
         device = get_torch_device(self._model)
         inputs = self.processor(images=image, return_tensors="pt")
         self._pixel_values = inputs["pixel_values"].to(device)
 
-        if not self._class_id and not class_index:
-            with torch.no_grad():
-                logits = self._model(pixel_values=self._pixel_values).logits
-            self._class_id = int(logits.argmax(-1).item())
-        elif class_index is not None:
+        with torch.no_grad():
+            logits = extract_logits(self._model(pixel_values=self._pixel_values))
+        if class_index is not None:
             self._class_id = class_index
+        elif self._class_id is None:
+            self._class_id = int(logits.argmax(-1).item())
 
         self._player_masks = torch.from_numpy(self._player_strategy.get_pixel_masks(image)).to(
             device
         )
         self._token_masks = torch.from_numpy(self._player_strategy.get_token_masks()).to(device)
+
+        empty_coalition = torch.zeros(1, self.n_players, dtype=torch.bool, device=device)
+        with torch.no_grad():
+            token_mask = self._masking_strategy.apply(empty_coalition, self._token_masks)
+            masked_logits = extract_logits(
+                self._model(pixel_values=self._pixel_values, bool_masked_pos=token_mask)
+            )
+        if torch.allclose(logits, masked_logits):
+            msg = (
+                f"{type(self._model).__name__} ignores bool_masked_pos: masking all tokens "
+                "does not change its output, so token-space masking would produce constant "
+                "attributions. Use pixel-space masking instead, e.g. "
+                "CNNArchitecture(model=model, processor=processor) or "
+                "resolve_architecture(model, processor)."
+            )
+            raise ValueError(msg)
 
     def value_function(self, coalitions: torch.Tensor) -> torch.Tensor:
         """Evaluate the ViT for a batch of coalitions.
@@ -319,9 +400,11 @@ class TransformerArchitecture(ModelArchitectureStrategy):
             probability for the predicted class for each coalition.
         """
         with torch.no_grad():
-            token_mask = self._masking_strategy.apply(coalitions, self._token_masks)
+            token_mask = self._masking_strategy.apply(
+                coalitions.to(self._token_masks.device), self._token_masks
+            )
             batch = self._pixel_values.repeat(token_mask.shape[0], 1, 1, 1)
-            logits = self._model(pixel_values=batch, bool_masked_pos=token_mask).logits
+            logits = extract_logits(self._model(pixel_values=batch, bool_masked_pos=token_mask))
             probs = torch.softmax(logits, dim=-1)
 
         return probs[:, self._class_id]

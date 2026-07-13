@@ -169,7 +169,7 @@ vit_model.eval()
 
 vit_arch = TransformerArchitecture(
     model=vit_model,
-    vit_processor=vit_processor,
+    processor=vit_processor,
 )
 
 # %%

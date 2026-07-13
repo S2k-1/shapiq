@@ -9,6 +9,7 @@ from shapiq.explainer.configuration import ValidApproximatorTypes, setup_approxi
 from shapiq.explainer.custom_types import ExplainerIndices
 from shapiq.game_theory.indices import is_empty_value_the_baseline
 
+from .dispatch import resolve_architecture
 from .imputer import ImageImputer
 
 if TYPE_CHECKING:
@@ -16,6 +17,7 @@ if TYPE_CHECKING:
 
     from shapiq.approximator.base import Approximator
     from shapiq.interaction_values import InteractionValues
+    from shapiq.typing import Model
 
     from .architecture import ModelArchitectureStrategy
     from .utils import ImageLike
@@ -28,17 +30,22 @@ class ImageExplainer(Explainer):
     """Explainer for vision models based on Shapley interaction values.
 
     Example:
-        >>> from shapiq.vision.architecture import CNNArchitecture, TransformerArchitecture
         >>> from shapiq.vision.explainer import ImageExplainer
 
-        >>> # --- CNN (ResNet-style) ---
-        >>> arch = CNNArchitecture(model=my_resnet)
-        >>> explainer = ImageExplainer(model_architecture=arch, data=my_image)
+        >>> # --- Automatic dispatch: pass any vision model directly ---
+        >>> explainer = ImageExplainer(model=hf_model, data=my_image)
         >>> iv = explainer.explain_function(x=None, budget=256)
 
-        >>> # --- ViT ---
-        >>> arch = TransformerArchitecture(model=my_vit, vit_processor=processor)
-        >>> explainer = ImageExplainer(model_architecture=arch, data=my_image,
+        >>> # --- Manual: CNN (ResNet-style) ---
+        >>> from shapiq.vision.architecture import CNNArchitecture
+        >>> arch = CNNArchitecture(model=my_resnet)
+        >>> explainer = ImageExplainer(model=arch, data=my_image)
+        >>> iv = explainer.explain_function(x=None, budget=256)
+
+        >>> # --- Manual: ViT with token masking ---
+        >>> from shapiq.vision.architecture import TransformerArchitecture
+        >>> arch = TransformerArchitecture(model=my_vit, processor=processor)
+        >>> explainer = ImageExplainer(model=arch, data=my_image,
                                    index="SII", max_order=2)
         >>> iv = explainer.explain_function(x=None, budget=512)
 
@@ -48,9 +55,10 @@ class ImageExplainer(Explainer):
 
     def __init__(
         self,
-        model: ModelArchitectureStrategy,
+        model: ModelArchitectureStrategy | Model,
         data: ImageLike,
         *,
+        processor: Model | None = None,
         class_index: int | None = None,
         imputer: ImageImputer | None = None,
         approximator: (
@@ -65,18 +73,24 @@ class ImageExplainer(Explainer):
         """Initialize an image explainer.
 
         Args:
-            model: A configured
+            model: The vision model to explain, or a pre-configured
                 :class:`~shapiq.vision.architecture.ModelArchitectureStrategy`
                 (e.g. :class:`~shapiq.vision.architecture.CNNArchitecture` or
                 :class:`~shapiq.vision.architecture.TransformerArchitecture`).
-                This object owns the model, the player strategy, and the masking
-                strategy. Sensible defaults are chosen automatically if no custom
-                strategies are passed to the architecture constructor.
+                Raw models are dispatched automatically via
+                :func:`~shapiq.vision.dispatch.resolve_architecture`: models
+                that verifiably support token masking get token-space masking,
+                everything else falls back to pixel-space masking.
 
             data: The image to explain. Accepts a numpy ``(H, W, C)`` or
                 ``(H, W)`` array, a PIL :class:`~PIL.Image.Image`, or a PyTorch
                 ``(C, H, W)`` / ``(H, W, C)`` tensor. Batched 4-D inputs are not
                 supported.
+
+            processor: Optional image processor matching a raw Hugging Face
+                model. When omitted, one is auto-loaded from the model's
+                ``name_or_path``. Ignored if ``model`` is already an
+                architecture strategy.
 
             class_index: The class index of the model to explain. Defaults to ``None``, which will
                 set the class index to the highest predicted class for the image.
@@ -104,11 +118,13 @@ class ImageExplainer(Explainer):
 
             **kwargs: Additional keyword arguments.
         """
+        architecture = resolve_architecture(model, processor=processor)
+
         if isinstance(imputer, ImageImputer):
             _imputer: ImageImputer = imputer
         else:
             _imputer: ImageImputer = ImageImputer(
-                model_architecture=model,
+                model_architecture=architecture,
                 image=data,
                 batch_size=batch_size,
                 class_index=class_index,
@@ -210,3 +226,8 @@ class ImageExplainer(Explainer):
     def imputer(self) -> ImageImputer:
         """The image imputer used by this explainer."""
         return self._imputer
+
+    @property
+    def architecture(self) -> ModelArchitectureStrategy:
+        """The (possibly auto-dispatched) architecture strategy in use."""
+        return self._imputer.architecture

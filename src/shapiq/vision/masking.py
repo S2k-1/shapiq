@@ -224,42 +224,53 @@ class MaskTokenStrategy(TransformerMaskingStrategy):
     """Masks tokens by zeroing the mask_token embedding before the forward pass."""
 
     def __init__(self, model: Model) -> None:
-        """Initialise with the ViT model whose mask token will be zeroed.
+        """Initialise with the ViT-like model whose mask token will be zeroed.
 
         Args:
-            model: A ViT model with a ``vit.embeddings.mask_token``
-                parameter.
+            model: A model whose backbone embeddings carry a ``mask_token``
+                slot (e.g. ``model.vit.embeddings``, ``model.deit.embeddings``,
+                ``model.beit.embeddings`` — resolved generically through
+                ``model.base_model``).
         """
         self._model = model
         type(self).validate_model(model)
 
     @classmethod
     def validate_model(cls, model: Model) -> None:
-        """Validate that ``model`` satisfies the declared protocol and exposes required attributes.
+        """Validate that ``model`` satisfies the declared protocol and exposes embeddings.
 
         Args:
-            model: Object to validate against ``compatible_model_protocol`` and supports
-                model.vit.embeddings.mask_token and model.config.hidden_size.
+            model: Object to validate against ``compatible_model_protocol``. Its
+                backbone (``model.base_model`` for Hugging Face task heads, else
+                the model itself) must expose an ``embeddings`` module with a
+                ``mask_token`` slot.
 
         Raises:
-            TypeError: If ``model`` does not support the required attributes or is not
-                compatible with the declared protocol.
+            TypeError: If ``model`` has no backbone embeddings with a
+                ``mask_token`` slot or is not compatible with the declared
+                protocol.
         """
+        from .dispatch import embeddings_of
+
         super().validate_model(model)
-        try:
-            embeddings = model.vit.embeddings
-            _ = embeddings.mask_token
-            _ = model.config.hidden_size
-        except AttributeError:
+        embeddings = embeddings_of(model)
+        if embeddings is None or not hasattr(embeddings, "mask_token"):
             msg = (
-                f"{cls.__name__} requires a model exposing ``vit.embeddings.mask_token`` "
-                "and ``config.hidden_size``."
+                f"{cls.__name__} requires a model whose backbone exposes "
+                "``embeddings.mask_token`` (e.g. ViT, DeiT, BEiT, Swin). "
+                f"Got {type(model).__name__}."
             )
-            raise TypeError(msg) from None
+            raise TypeError(msg)
 
     def apply(self, coalitions: torch.Tensor, token_masks: torch.Tensor) -> torch.Tensor:
-        """Apply masking by setting the model's mask_token embedding to zero."""
-        self._model.vit.embeddings.mask_token = torch.nn.Parameter(
-            torch.zeros(1, 1, self._model.config.hidden_size)
-        )
+        """Apply masking, ensuring the model carries an all-zero mask token."""
+        from .dispatch import ensure_zero_mask_token
+
+        if not ensure_zero_mask_token(self._model):
+            msg = (
+                f"Could not create a zero mask token for {type(self._model).__name__}: "
+                "the embedding dimension could not be inferred. Pass a masking strategy "
+                "explicitly (e.g. BoolMaskedPosStrategy) or use pixel-space masking."
+            )
+            raise TypeError(msg)
         return self._to_token_mask(coalitions, token_masks)

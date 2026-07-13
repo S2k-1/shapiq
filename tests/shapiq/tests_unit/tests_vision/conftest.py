@@ -95,6 +95,8 @@ class MockViT:
         self.vit = SimpleNamespace(
             embeddings=SimpleNamespace(mask_token=torch.nn.Parameter(torch.zeros(1, 1, 4)))
         )
+        # Mirrors transformers' PreTrainedModel.base_model (the task head's backbone).
+        self.base_model = self.vit
 
     def __call__(self, pixel_values=None, bool_masked_pos=None, **_):
         batch_size = pixel_values.shape[0]
@@ -123,7 +125,7 @@ def image_24x24() -> np.ndarray:
 def transformer_architecture() -> TransformerArchitecture:
     return TransformerArchitecture(
         model=MockViT(),
-        vit_processor=MockViTProcessor(),
+        processor=MockViTProcessor(),
         masking_strategy=BoolMaskedPosStrategy(),
     )
 

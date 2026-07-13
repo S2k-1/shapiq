@@ -9,6 +9,7 @@ _LAZY_MODULES: dict[str, str] = {
     "ModelArchitectureStrategy": "architecture",
     "CNNArchitecture": "architecture",
     "TransformerArchitecture": "architecture",
+    "resolve_architecture": "dispatch",
     "ImageExplainer": "explainer",
     "ImageImputer": "imputer",
     "CNNMaskingStrategy": "masking",
@@ -65,6 +66,7 @@ if TYPE_CHECKING:
         ModelArchitectureStrategy,
         TransformerArchitecture,
     )
+    from .dispatch import resolve_architecture
     from .explainer import ImageExplainer
     from .imputer import ImageImputer
     from .masking import (
@@ -89,6 +91,8 @@ __all__ = [
     "ModelArchitectureStrategy",
     "CNNArchitecture",
     "TransformerArchitecture",
+    # Dispatch
+    "resolve_architecture",
     # Explainer
     "ImageExplainer",
     # Imputer

@@ -146,7 +146,7 @@ class TestViTIntegration:
         image = rng.integers(0, 255, size=(96, 96, 3), dtype=np.uint8)
 
         # Default MaskTokenStrategy initialises mask_token on classification ViTs.
-        arch = TransformerArchitecture(model=model, vit_processor=processor)
+        arch = TransformerArchitecture(model=model, processor=processor)
         imputer = ImageImputer(
             model_architecture=arch,
             image=image,
@@ -165,7 +165,7 @@ class TestViTIntegration:
         rng = np.random.default_rng(4)
         image = rng.integers(0, 255, size=(96, 96, 3), dtype=np.uint8)
 
-        arch = TransformerArchitecture(model=model, vit_processor=processor)
+        arch = TransformerArchitecture(model=model, processor=processor)
         explainer = ImageExplainer(
             model=arch,
             data=image,
