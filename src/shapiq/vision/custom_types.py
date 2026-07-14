@@ -41,7 +41,7 @@ class ViTLikeModel(Protocol):
     model *actually* honors ``bool_masked_pos`` cannot be read off its
     signature (many ``transformers`` classification heads accept it via
     ``**kwargs`` and silently drop it), so
-    :func:`shapiq.vision.dispatch.probe_token_masking` verifies it
+    :func:`shapiq.vision.probing.probe_token_masking` verifies it
     functionally.
     """
 

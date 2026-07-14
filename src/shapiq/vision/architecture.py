@@ -14,15 +14,11 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from .custom_types import CoalitionDomain
-from .dispatch import (
-    _processed_dummy,
-    extract_logits,
-    masking_changes_output,
-    resolve_patch_grid,
-)
+from .dispatch import resolve_patch_grid
 from .masking import MaskTokenStrategy, MeanColorMasking
 from .players import PatchStrategy, SuperpixelStrategy
-from .utils import get_torch_device, to_tensor_chw
+from .probing import masking_changes_output, processed_dummy
+from .utils import extract_logits, get_torch_device, to_tensor_chw
 
 try:
     import torch
@@ -397,7 +393,7 @@ class TransformerArchitecture(ModelArchitectureStrategy):
                 output, i.e. the model ignores ``bool_masked_pos``.
         """
         device = get_torch_device(self._model)
-        pixel_values = _processed_dummy(self.processor, device)
+        pixel_values = processed_dummy(self.processor, device)
         token_masks = torch.from_numpy(self._player_strategy.get_token_masks()).to(device)
         empty_coalition = torch.zeros(1, self.n_players, dtype=torch.bool, device=device)
         token_mask = self._masking_strategy.apply(empty_coalition, token_masks)

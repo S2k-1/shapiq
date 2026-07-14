@@ -132,6 +132,29 @@ def to_tensor_chw(
     return tensor
 
 
+def extract_logits(output: object) -> torch.Tensor:
+    """Return classification logits from a model output.
+
+    Accepts raw tensors (torchvision-style) and output objects exposing
+    ``.logits`` (``transformers``-style).
+
+    Raises:
+        TypeError: If the output carries neither, e.g. encoder-only models
+            such as ViT-MAE or bare CLIP without a classification head.
+    """
+    logits = getattr(output, "logits", None)
+    if logits is None and isinstance(output, torch.Tensor):
+        logits = output
+    if not isinstance(logits, torch.Tensor):
+        msg = (
+            f"Model output of type {type(output).__name__} exposes no classification logits. "
+            "Only classification models (returning a tensor or an object with `.logits`) "
+            "are supported by ImageExplainer."
+        )
+        raise TypeError(msg)
+    return logits
+
+
 def get_torch_device(obj: object) -> torch.device:
     """Return the :class:`torch.device` for a model, module, or tensor.
 

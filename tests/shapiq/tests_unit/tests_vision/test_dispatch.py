@@ -20,13 +20,15 @@ from shapiq.vision.architecture import (
     TransformerArchitecture,
 )
 from shapiq.vision.dispatch import (
-    ensure_zero_mask_token,
-    extract_logits,
-    probe_token_masking,
     resolve_architecture,
-    resolve_embed_dim,
     resolve_patch_grid,
 )
+from shapiq.vision.probing import (
+    ensure_zero_mask_token,
+    probe_token_masking,
+    resolve_embed_dim,
+)
+from shapiq.vision.utils import extract_logits
 
 from .conftest import ChannelSumModel
 

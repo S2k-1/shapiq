@@ -250,7 +250,7 @@ class MaskTokenStrategy(TransformerMaskingStrategy):
                 ``mask_token`` slot or is not compatible with the declared
                 protocol.
         """
-        from .dispatch import embeddings_of
+        from .probing import embeddings_of
 
         super().validate_model(model)
         embeddings = embeddings_of(model)
@@ -264,7 +264,7 @@ class MaskTokenStrategy(TransformerMaskingStrategy):
 
     def apply(self, coalitions: torch.Tensor, token_masks: torch.Tensor) -> torch.Tensor:
         """Apply masking, ensuring the model carries an all-zero mask token."""
-        from .dispatch import ensure_zero_mask_token
+        from .probing import ensure_zero_mask_token
 
         if not ensure_zero_mask_token(self._model):
             msg = (
