@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from .custom_types import CoalitionDomain
-from .dispatch import extract_logits, resolve_patch_grid
+from .dispatch import _processed_dummy, extract_logits, resolve_patch_grid
 from .masking import MaskTokenStrategy, MeanColorMasking
 from .players import PatchStrategy, SuperpixelStrategy
 from .utils import get_torch_device, to_tensor_chw
@@ -308,6 +308,8 @@ class TransformerArchitecture(ModelArchitectureStrategy):
         processor: Model,
         masking_strategy: TransformerMaskingStrategy | None = None,
         player_strategy: TransformerPlayerStrategy | None = None,
+        *,
+        verified: bool = False,
     ) -> None:
         """Initialize the Transformer architecture strategy.
 
@@ -321,6 +323,15 @@ class TransformerArchitecture(ModelArchitectureStrategy):
             player_strategy: Player definition strategy. Defaults to
                 :class:`~shapiq.vision.players.PatchStrategy` sized to the model's
                 patch grid.
+            verified: Set to ``True`` by callers that have already verified that
+                the model honors ``bool_masked_pos`` (e.g.
+                :func:`~shapiq.vision.dispatch.resolve_architecture` after its
+                token-masking probe) to skip the verification forward passes.
+
+        Raises:
+            ValueError: If the model accepts ``bool_masked_pos`` but ignores it
+                (e.g. Swin, BEiT, FocalNet, or CNN classification heads), which
+                would yield constant, meaningless attributions.
         """
         self._model = model
         self.processor = processor
@@ -329,6 +340,8 @@ class TransformerArchitecture(ModelArchitectureStrategy):
         self._player_strategy = player_strategy or self.default_player_strategy()
         self._masking_strategy = masking_strategy or self.default_masking_strategy()
         self._validate_configuration()
+        if not verified:
+            self._verify_token_masking()
         self._pixel_values: torch.Tensor
         self._player_masks: torch.Tensor
         self._token_masks: torch.Tensor
@@ -365,24 +378,51 @@ class TransformerArchitecture(ModelArchitectureStrategy):
         """
         return MaskTokenStrategy(self._model)
 
+    def _verify_token_masking(self) -> None:
+        """Verify on a dummy image that ``bool_masked_pos`` changes the model output.
+
+        Compares an unmasked forward pass against a fully masked one (through
+        the configured masking strategy). Many classification heads accept
+        ``bool_masked_pos`` via ``**kwargs`` but silently drop it (e.g. Swin,
+        BEiT, FocalNet, ResNet) — token-space masking would then produce
+        constant, meaningless attributions.
+
+        Raises:
+            ValueError: If masking all tokens does not change the model
+                output, i.e. the model ignores ``bool_masked_pos``.
+        """
+        device = get_torch_device(self._model)
+        pixel_values = _processed_dummy(self.processor, device)
+        token_masks = torch.from_numpy(self._player_strategy.get_token_masks()).to(device)
+        empty_coalition = torch.zeros(1, self.n_players, dtype=torch.bool, device=device)
+        with torch.no_grad():
+            unmasked = extract_logits(self._model(pixel_values=pixel_values))
+            token_mask = self._masking_strategy.apply(empty_coalition, token_masks)
+            masked = extract_logits(
+                self._model(pixel_values=pixel_values, bool_masked_pos=token_mask)
+            )
+        if torch.allclose(unmasked, masked):
+            msg = (
+                f"{type(self._model).__name__} ignores bool_masked_pos: masking all tokens "
+                "does not change its output, so token-space masking would produce constant "
+                "attributions. Use pixel-space masking instead, e.g. "
+                "CNNArchitecture(model=model, processor=processor) or "
+                "resolve_architecture(model, processor)."
+            )
+            raise ValueError(msg)
+
     def prepare(self, image: np.ndarray, class_index: int | None = None) -> None:
         """Cache pixel values, token masks, pixel masks, and predicted class index.
 
         Passes ``image`` directly to the image processor (which expects
         a numpy ``(H, W, C)`` or PIL image), places the resulting
         ``pixel_values`` tensor on the model's device, and runs one forward
-        pass to determine the predicted class index. A second, fully masked
-        forward pass verifies that the model actually honors
-        ``bool_masked_pos`` — models that silently ignore it would otherwise
-        yield constant (meaningless) attributions.
+        pass to determine the predicted class index. That the model honors
+        ``bool_masked_pos`` was already verified at construction.
 
         Args:
             image: Input image as a ``(H, W, C)`` numpy array.
             class_index: Index of the class to explain.
-
-        Raises:
-            ValueError: If masking all tokens does not change the model
-                output, i.e. the model ignores ``bool_masked_pos``.
         """
         device = get_torch_device(self._model)
         inputs = self.processor(images=image, return_tensors="pt")
@@ -399,22 +439,6 @@ class TransformerArchitecture(ModelArchitectureStrategy):
             device
         )
         self._token_masks = torch.from_numpy(self._player_strategy.get_token_masks()).to(device)
-
-        empty_coalition = torch.zeros(1, self.n_players, dtype=torch.bool, device=device)
-        with torch.no_grad():
-            token_mask = self._masking_strategy.apply(empty_coalition, self._token_masks)
-            masked_logits = extract_logits(
-                self._model(pixel_values=self._pixel_values, bool_masked_pos=token_mask)
-            )
-        if torch.allclose(logits, masked_logits):
-            msg = (
-                f"{type(self._model).__name__} ignores bool_masked_pos: masking all tokens "
-                "does not change its output, so token-space masking would produce constant "
-                "attributions. Use pixel-space masking instead, e.g. "
-                "CNNArchitecture(model=model, processor=processor) or "
-                "resolve_architecture(model, processor)."
-            )
-            raise ValueError(msg)
 
     def value_function(self, coalitions: torch.Tensor) -> torch.Tensor:
         """Evaluate the ViT for a batch of coalitions.

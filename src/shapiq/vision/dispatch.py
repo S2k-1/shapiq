@@ -344,7 +344,8 @@ def resolve_architecture(
 
     grid_size = resolve_patch_grid(model, processor)
     if grid_size is not None and probe_token_masking(model, processor, grid_size):
-        return TransformerArchitecture(model=model, processor=processor)
+        # The probe just verified token masking; skip the constructor's own check.
+        return TransformerArchitecture(model=model, processor=processor, verified=True)
 
     _validate_classification_model(model, processor)
     return CNNArchitecture(model=model, processor=processor)

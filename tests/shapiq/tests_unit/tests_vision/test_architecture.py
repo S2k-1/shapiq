@@ -160,13 +160,17 @@ class TestTransformerArchitecture:
         assert isinstance(arch.default_masking_strategy(), MaskTokenStrategy)
 
     def test_init_succeeds_for_standard_vit(self) -> None:
-        """ViT-B/16 uses a 14x14 token grid; construction must not raise on the default."""
-        arch = TransformerArchitecture(model=_BareViT(), processor=object())
+        """ViT-B/16 uses a 14x14 token grid; construction must not raise on the default.
+
+        ``verified=True`` skips the token-masking verification, which the bare
+        config-only stand-in (constant logits, no usable processor) cannot pass.
+        """
+        arch = TransformerArchitecture(model=_BareViT(), processor=object(), verified=True)
         assert isinstance(arch.default_player_strategy(), PatchStrategy)
 
     def test_default_player_strategy_adapts_to_standard_vit_grid(self) -> None:
         """``default_player_strategy()`` yields a valid grid for ViT-B/16's 14x14 tokens."""
-        arch = TransformerArchitecture(model=_BareViT(), processor=object())
+        arch = TransformerArchitecture(model=_BareViT(), processor=object(), verified=True)
         strategy = arch.default_player_strategy()
         assert strategy.grid_size == 14
         assert strategy.n_players == 4
@@ -247,6 +251,18 @@ class TestTransformerArchitecture:
         assert torch.allclose(model.vit.embeddings.mask_token.data, torch.zeros(1, 1, 4))
 
 
+class _SwallowingViT:
+    """HF-style mock that accepts but silently ignores ``bool_masked_pos`` (like Swin heads)."""
+
+    def __init__(self) -> None:
+        self.config = SimpleNamespace(image_size=24, patch_size=8, hidden_size=4)
+        self.embeddings = SimpleNamespace(mask_token=None)
+
+    def __call__(self, pixel_values=None, **_):
+        total = pixel_values.sum(dim=(1, 2, 3))
+        return SimpleNamespace(logits=torch.stack([total, -total], dim=1))
+
+
 class TestArchitectureDomainEnforcement:
     """Consistent strategy pairs in the wrong architecture fail at construction."""
 
@@ -276,6 +292,31 @@ class TestArchitectureDomainEnforcement:
                 player_strategy=GridStrategy(grid_shape=2),
                 masking_strategy=BoolMaskedPosStrategy(),
             )
+
+
+class TestConstructionTimeVerification:
+    """The constructor probes ``bool_masked_pos`` support unless ``verified=True``."""
+
+    def test_swallowing_model_rejected_at_construction(self) -> None:
+        with pytest.raises(ValueError, match="ignores bool_masked_pos"):
+            TransformerArchitecture(
+                model=_SwallowingViT(),
+                processor=MockViTProcessor(),
+                masking_strategy=BoolMaskedPosStrategy(),
+            )
+
+    def test_verified_true_skips_the_probe(self) -> None:
+        arch = TransformerArchitecture(
+            model=_SwallowingViT(),
+            processor=MockViTProcessor(),
+            masking_strategy=BoolMaskedPosStrategy(),
+            verified=True,
+        )
+        assert isinstance(arch, TransformerArchitecture)
+
+    def test_honoring_model_constructs_without_error(self) -> None:
+        arch = TransformerArchitecture(model=MockViT(), processor=MockViTProcessor())
+        assert arch.n_players == 9
 
 
 class TestArchitectureOutputScale:

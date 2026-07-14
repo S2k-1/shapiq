@@ -222,19 +222,18 @@ class TestPixelFallbackEndToEnd:
         expected_full = float(image.astype(np.float64).sum() / 255.0)
         assert out[0].item() == pytest.approx(expected_full, rel=1e-4)
 
-    def test_transformer_prepare_raises_for_masking_ignoring_model(self, image_24x24) -> None:
-        """Constructing the transformer path around a swallowing model fails at prepare."""
+    def test_transformer_init_raises_for_masking_ignoring_model(self) -> None:
+        """Constructing the transformer path around a swallowing model fails at init."""
         from shapiq.vision.masking import BoolMaskedPosStrategy
         from shapiq.vision.players import PatchStrategy
 
-        arch = TransformerArchitecture(
-            model=FakeSwallowingModel(),
-            processor=FakeProcessor(),
-            masking_strategy=BoolMaskedPosStrategy(),
-            player_strategy=PatchStrategy(grid_size=4, n_players=4),
-        )
         with pytest.raises(ValueError, match="bool_masked_pos"):
-            arch.prepare(image_24x24)
+            TransformerArchitecture(
+                model=FakeSwallowingModel(),
+                processor=FakeProcessor(),
+                masking_strategy=BoolMaskedPosStrategy(),
+                player_strategy=PatchStrategy(grid_size=4, n_players=4),
+            )
 
 
 class TestExplainerAutoDispatch:
