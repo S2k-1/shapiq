@@ -14,7 +14,12 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from .custom_types import CoalitionDomain
-from .dispatch import _processed_dummy, extract_logits, resolve_patch_grid
+from .dispatch import (
+    _processed_dummy,
+    extract_logits,
+    masking_changes_output,
+    resolve_patch_grid,
+)
 from .masking import MaskTokenStrategy, MeanColorMasking
 from .players import PatchStrategy, SuperpixelStrategy
 from .utils import get_torch_device, to_tensor_chw
@@ -395,13 +400,8 @@ class TransformerArchitecture(ModelArchitectureStrategy):
         pixel_values = _processed_dummy(self.processor, device)
         token_masks = torch.from_numpy(self._player_strategy.get_token_masks()).to(device)
         empty_coalition = torch.zeros(1, self.n_players, dtype=torch.bool, device=device)
-        with torch.no_grad():
-            unmasked = extract_logits(self._model(pixel_values=pixel_values))
-            token_mask = self._masking_strategy.apply(empty_coalition, token_masks)
-            masked = extract_logits(
-                self._model(pixel_values=pixel_values, bool_masked_pos=token_mask)
-            )
-        if torch.allclose(unmasked, masked):
+        token_mask = self._masking_strategy.apply(empty_coalition, token_masks)
+        if not masking_changes_output(self._model, pixel_values, token_mask):
             msg = (
                 f"{type(self._model).__name__} ignores bool_masked_pos: masking all tokens "
                 "does not change its output, so token-space masking would produce constant "

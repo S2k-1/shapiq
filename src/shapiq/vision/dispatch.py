@@ -214,6 +214,23 @@ def _processed_dummy(processor: Model, device: torch.device) -> torch.Tensor:
     return inputs["pixel_values"].to(device)
 
 
+def masking_changes_output(
+    model: Model, pixel_values: torch.Tensor, token_mask: torch.Tensor
+) -> bool:
+    """Return ``True`` when masking all tokens changes the model output.
+
+    The shared core of :func:`probe_token_masking` and the construction-time
+    verification in
+    :class:`~shapiq.vision.architecture.TransformerArchitecture`: forwards
+    ``pixel_values`` once without and once with ``bool_masked_pos=token_mask``
+    and compares the logits.
+    """
+    with torch.no_grad():
+        unmasked = extract_logits(model(pixel_values=pixel_values))
+        masked = extract_logits(model(pixel_values=pixel_values, bool_masked_pos=token_mask))
+    return unmasked.shape == masked.shape and not torch.allclose(unmasked, masked)
+
+
 def probe_token_masking(model: Model, processor: Model, grid_size: int) -> bool:
     """Check functionally whether ``bool_masked_pos`` affects the model output.
 
@@ -236,16 +253,11 @@ def probe_token_masking(model: Model, processor: Model, grid_size: int) -> bool:
         if hasattr(model, "eval"):
             model.eval()
         try:
-            with torch.no_grad():
-                unmasked = extract_logits(model(pixel_values=pixel_values))
-                mask = torch.ones(1, grid_size * grid_size, dtype=torch.bool, device=device)
-                masked = extract_logits(model(pixel_values=pixel_values, bool_masked_pos=mask))
+            mask = torch.ones(1, grid_size * grid_size, dtype=torch.bool, device=device)
+            return masking_changes_output(model, pixel_values, mask)
         finally:
             if was_training and hasattr(model, "train"):
                 model.train()
-        if unmasked.shape != masked.shape:
-            return False
-        return not torch.allclose(unmasked, masked)
     except Exception:  # noqa: BLE001 - any incompatibility means "not ViT-like"
         return False
 
