@@ -140,7 +140,9 @@ def extract_logits(output: object) -> torch.Tensor:
 
     Raises:
         TypeError: If the output carries neither, e.g. encoder-only models
-            such as ViT-MAE or bare CLIP without a classification head.
+            such as ViT-MAE or bare CLIP without a classification head; or if
+            the logits are not 2-D ``(batch, num_classes)``, e.g. the per-pixel
+            or per-query logits of segmentation/detection models.
     """
     logits = getattr(output, "logits", None)
     if logits is None and isinstance(output, torch.Tensor):
@@ -150,6 +152,14 @@ def extract_logits(output: object) -> torch.Tensor:
             f"Model output of type {type(output).__name__} exposes no classification logits. "
             "Only classification models (returning a tensor or an object with `.logits`) "
             "are supported by ImageExplainer."
+        )
+        raise TypeError(msg)
+    if logits.ndim != 2:
+        msg = (
+            f"Model output exposes logits of shape {tuple(logits.shape)}, but ImageExplainer "
+            "expects 2-D classification logits (batch, num_classes). Dense-prediction models "
+            "(e.g. segmentation, object detection) return per-pixel or per-query logits and are "
+            "not supported."
         )
         raise TypeError(msg)
     return logits
