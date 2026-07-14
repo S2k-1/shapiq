@@ -61,6 +61,11 @@ sphinx_gallery_conf = {
     # Order examples by filename so galleries can encode a reading order via
     # numeric prefixes (e.g. plot_01_..., plot_02_... in examples/vision).
     "within_subsection_order": "FileNameSortKey",
+    # With nested_sections=True the gallery root index carries a single
+    # toctree at the end of the file, which RST places inside the last
+    # section -- the sidebar then nests every gallery under "Visualization".
+    # False emits one toctree per section header instead.
+    "nested_sections": False,
     "plot_gallery": True,
     "download_all_examples": False,
     "show_signature": False,
