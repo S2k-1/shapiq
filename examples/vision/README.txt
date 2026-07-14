@@ -1,5 +1,7 @@
 Vision Models
 =============
 
-Examples demonstrating how to explain image classification models
-using ``shapiq`` with the explainer class for vision models or image patch-based cooperative games.
+Examples for explaining image classifiers with ``shapiq``, in reading
+order: quickstarts for CNNs and Vision Transformers, the architecture
+hierarchy and automatic dispatch, the player and masking strategy catalogs,
+target classes, and Shapley interactions.
