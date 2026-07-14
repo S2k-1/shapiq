@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from .custom_types import CoalitionDomain
 from .dispatch import extract_logits, resolve_patch_grid
 from .masking import MaskTokenStrategy, MeanColorMasking
 from .players import PatchStrategy, SuperpixelStrategy
@@ -52,25 +53,48 @@ class ModelArchitectureStrategy(ABC):
     _player_strategy: PlayerStrategy
     _masking_strategy: MaskingStrategy
 
+    coalition_domain: CoalitionDomain
+    """The coalition domain this architecture natively operates in."""
+
     def _validate_configuration(self) -> None:
-        """Validate that model, player strategy, and masking strategy are compatible."""
+        """Validate that model, player strategy, and masking strategy are compatible.
+
+        Raises:
+            TypeError: If the player and masking strategies live in different
+                coalition domains, or if their (consistent) domain is not the
+                one this architecture operates in.
+        """
         type(self._player_strategy).validate_model(self._model)
         type(self._masking_strategy).validate_model(self._model)
 
         player_domain = self._player_strategy.coalition_domain
         masking_domain = self._masking_strategy.accepted_coalition_domain
 
-        if (
-            self._player_strategy.coalition_domain
-            is not self._masking_strategy.accepted_coalition_domain
-            and player_domain is not masking_domain
-        ):
+        if player_domain is not masking_domain:
             msg = (
                 "Player strategy and masking strategy are incompatible: "
                 f"{type(self._player_strategy).__name__} uses coalition domain "
                 f"{player_domain.value!r}, but "
                 f"{type(self._masking_strategy).__name__} expects "
                 f"{masking_domain.value!r}."
+            )
+            raise TypeError(msg)
+
+        if player_domain is not self.coalition_domain:
+            hint = (
+                "Token-space strategies require TransformerArchitecture and a model "
+                "that honors bool_masked_pos."
+                if self.coalition_domain is CoalitionDomain.PIXEL
+                else "Pixel-space masking is provided by CNNArchitecture(model=model, "
+                "processor=processor, ...), which supports any classification model, "
+                "including ViT and Swin."
+            )
+            msg = (
+                f"{type(self).__name__} operates in coalition domain "
+                f"{self.coalition_domain.value!r}, but "
+                f"{type(self._player_strategy).__name__} and "
+                f"{type(self._masking_strategy).__name__} use {player_domain.value!r}. "
+                f"{hint}"
             )
             raise TypeError(msg)
 
@@ -140,6 +164,8 @@ class CNNArchitecture(ModelArchitectureStrategy):
 
     _masking_strategy: CNNMaskingStrategy
     _player_strategy: CNNPlayerStrategy
+
+    coalition_domain = CoalitionDomain.PIXEL
 
     def __init__(
         self,
@@ -273,6 +299,8 @@ class TransformerArchitecture(ModelArchitectureStrategy):
 
     _masking_strategy: TransformerMaskingStrategy
     _player_strategy: TransformerPlayerStrategy
+
+    coalition_domain = CoalitionDomain.TOKEN
 
     def __init__(
         self,

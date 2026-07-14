@@ -26,7 +26,7 @@ from shapiq.vision.masking import (
     MeanColorMasking,
     ZeroMasking,
 )
-from shapiq.vision.players import PatchStrategy, SuperpixelStrategy
+from shapiq.vision.players import GridStrategy, PatchStrategy, SuperpixelStrategy
 
 from .conftest import ChannelSumModel, FixedMasksStrategy, MockViT, MockViTProcessor
 
@@ -245,6 +245,37 @@ class TestTransformerArchitecture:
         assert out.shape == (4,)
         assert out[0] < out[1] < out[2] < out[3]
         assert torch.allclose(model.vit.embeddings.mask_token.data, torch.zeros(1, 1, 4))
+
+
+class TestArchitectureDomainEnforcement:
+    """Consistent strategy pairs in the wrong architecture fail at construction."""
+
+    def test_transformer_rejects_consistent_pixel_pair(self) -> None:
+        with pytest.raises(TypeError, match="operates in coalition domain 'token'"):
+            TransformerArchitecture(
+                model=MockViT(),
+                processor=MockViTProcessor(),
+                player_strategy=GridStrategy(grid_shape=2),
+                masking_strategy=MeanColorMasking(),
+            )
+
+    def test_cnn_rejects_consistent_token_pair(self) -> None:
+        model = MockViT()
+        with pytest.raises(TypeError, match="operates in coalition domain 'pixel'"):
+            CNNArchitecture(
+                model=model,
+                player_strategy=PatchStrategy(grid_size=3, n_players=9),
+                masking_strategy=MaskTokenStrategy(model),
+            )
+
+    def test_cross_domain_pair_still_rejected(self) -> None:
+        with pytest.raises(TypeError, match="incompatible"):
+            TransformerArchitecture(
+                model=MockViT(),
+                processor=MockViTProcessor(),
+                player_strategy=GridStrategy(grid_shape=2),
+                masking_strategy=BoolMaskedPosStrategy(),
+            )
 
 
 class TestArchitectureOutputScale:
