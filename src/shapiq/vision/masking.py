@@ -10,7 +10,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
-from shapiq.vision.validation import ModelCompatible
+from shapiq.vision.validation import ModelCompatible, validate_config_attributes
 
 try:
     import torch
@@ -212,7 +212,37 @@ class BoolMaskedPosStrategy(LatentBasedMaskingStrategy):
 
     This strategy requires the model to support the ``bool_masked_pos``
     argument (e.g. :class:`~transformers.ViTForMaskedImageModeling`).
+
+    Unlike :class:`MaskTokenStrategy`, it does not initialise the model's
+    ``mask_token``: the model must already own one, which Hugging Face only
+    provides when the model was built with ``use_mask_token=True``.
     """
+
+    @classmethod
+    def validate_model(cls, model: Model) -> None:
+        """Validate that ``model`` satisfies the declared protocol and owns a mask token.
+
+        Args:
+            model: Object to validate against ``compatible_model_protocol`` and
+                supports model.vit.embeddings.mask_token.
+
+        Raises:
+            TypeError: If ``model`` is not compatible with the declared protocol,
+                does not expose ``vit.embeddings.mask_token``, or leaves it unset.
+        """
+        super().validate_model(model)
+        try:
+            mask_token = model.vit.embeddings.mask_token
+        except AttributeError:
+            msg = f"{cls.__name__} requires a model exposing ``vit.embeddings.mask_token``."
+            raise TypeError(msg) from None
+        if mask_token is None:
+            msg = (
+                f"{cls.__name__} requires a model built with ``use_mask_token=True`` (e.g. "
+                "``ViTForMaskedImageModeling``), but ``vit.embeddings.mask_token`` is None. "
+                "Use MaskTokenStrategy(model) instead, which initialises the mask token itself."
+            )
+            raise TypeError(msg)
 
     def apply(self, coalitions: torch.Tensor, token_masks: torch.Tensor) -> torch.Tensor:
         """Apply boolean masking by converting coalitions to a ``bool_masked_pos`` tensor."""
@@ -248,13 +278,10 @@ class MaskTokenStrategy(LatentBasedMaskingStrategy):
         try:
             embeddings = model.vit.embeddings
             _ = embeddings.mask_token
-            _ = model.config.hidden_size
         except AttributeError:
-            msg = (
-                f"{cls.__name__} requires a model exposing ``vit.embeddings.mask_token`` "
-                "and ``config.hidden_size``."
-            )
+            msg = f"{cls.__name__} requires a model exposing ``vit.embeddings.mask_token``."
             raise TypeError(msg) from None
+        validate_config_attributes(model, ("hidden_size",), cls.__name__)
 
     def apply(self, coalitions: torch.Tensor, token_masks: torch.Tensor) -> torch.Tensor:
         """Apply masking by setting the model's mask_token embedding to zero."""

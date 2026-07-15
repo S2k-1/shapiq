@@ -15,6 +15,7 @@ from .custom_types import CoalitionDomain
 from .masking import MaskTokenStrategy, MeanColorMasking
 from .players import PatchStrategy, SuperpixelStrategy
 from .utils import extract_logits, get_torch_device, to_tensor_chw
+from .validation import validate_config_attributes
 
 try:
     import torch
@@ -330,7 +331,18 @@ class ViTClassificationArchitecture(ModelArchitectureStrategy):
         self._class_id: int | None = None
 
     def default_player_strategy(self) -> PatchStrategy:
-        """Return a patch player strategy sized to the model's patch grid."""
+        """Return a patch player strategy sized to the model's patch grid.
+
+        Raises:
+            TypeError: If the model's config does not define ``image_size`` and
+                ``patch_size``, which are required to derive the patch grid.
+        """
+        validate_config_attributes(
+            self._model,
+            ("image_size", "patch_size"),
+            f"The default player strategy of {type(self).__name__}",
+            hint="Pass an explicit ``player_strategy`` for models that do not define them.",
+        )
         grid_size = self._model.config.image_size // self._model.config.patch_size
         return PatchStrategy(
             grid_size=grid_size, n_players=PatchStrategy.default_n_players(grid_size)
