@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     import torch
@@ -28,16 +28,3 @@ class ClassificationOutput(Protocol):
     """Protocol for model outputs exposing classification logits."""
 
     logits: torch.Tensor
-
-
-@runtime_checkable
-class ViTLikeModel(Protocol):
-    """Protocol for ViT-like models supporting token masking via bool_masked_pos."""
-    config: Any
-
-    def __call__(
-        self,
-        pixel_values: torch.Tensor,
-        bool_masked_pos: torch.BoolTensor | None = None,
-        **kwargs: Any,
-    ) -> ClassificationOutput: ...

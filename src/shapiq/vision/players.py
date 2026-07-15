@@ -15,7 +15,7 @@ import numpy as np
 
 from shapiq.vision.validation import ModelCompatible
 
-from .typing import CoalitionDomain, VisionModel, ViTLikeModel
+from .custom_types import CoalitionDomain, VisionModel
 
 
 def labels_to_masks(labels: np.ndarray) -> np.ndarray:
@@ -38,7 +38,7 @@ class PlayerStrategy(ModelCompatible, ABC):
     ``n_players`` disjoint regions. Subclasses declare the coalition domain
     they produce via ``coalition_domain``, e.g. ``CoalitionDomain.PIXEL``
     for pixel-space strategies and ``CoalitionDomain.TOKEN`` for token-space
-    strategies. Compatibility with a model protocol is enforced via 
+    strategies. Compatibility with a model protocol is enforced via
     ``compatible_model_protocol``, default is ``VisionModel``.
     """
 
@@ -442,7 +442,6 @@ class TransformerPlayerStrategy(PlayerStrategy, ABC):
     """
 
     coalition_domain = CoalitionDomain.TOKEN
-    compatible_model_protocol = ViTLikeModel
 
     @abstractmethod
     def get_token_masks(self) -> np.ndarray:

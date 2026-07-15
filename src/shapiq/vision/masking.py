@@ -19,7 +19,7 @@ except ImportError as err:
 
     raise _vision_import_error from err
 
-from .typing import CoalitionDomain, VisionModel, ViTLikeModel
+from .custom_types import CoalitionDomain, VisionModel
 
 if TYPE_CHECKING:
     from shapiq.typing import Model
@@ -31,7 +31,7 @@ class MaskingStrategy(ModelCompatible, ABC):
     Subclasses declare the coalition domain they accept via
     ``accepted_coalition_domain``. This is used to ensure the masking strategy
     matches the player strategy that produced the coalitions. Compatibility with
-    a model protocol is enforced via ``compatible_model_protocol``, default is 
+    a model protocol is enforced via ``compatible_model_protocol``, default is
     ``VisionModel``.
     """
 
@@ -149,7 +149,6 @@ class TransformerMaskingStrategy(MaskingStrategy, ABC):
     """
 
     accepted_coalition_domain: CoalitionDomain = CoalitionDomain.TOKEN
-    compatible_model_protocol = ViTLikeModel
 
     @abstractmethod
     def apply(
