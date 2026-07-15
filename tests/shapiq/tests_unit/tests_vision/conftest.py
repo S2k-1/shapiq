@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 import torch
 
-from shapiq.vision.architecture import TransformerArchitecture
+from shapiq.vision.architecture import ViTClassificationArchitecture
 from shapiq.vision.masking import BoolMaskedPosStrategy
 from shapiq.vision.players import CNNPlayerStrategy
 from shapiq.vision.utils import to_tensor_chw
@@ -40,7 +40,7 @@ class ChannelSumModel(torch.nn.Module):
     tests rely on.
 
     The model takes a ``(B, C, H, W)`` float tensor (as produced by
-    :class:`~shapiq.vision.architecture.CNNArchitecture`) and returns a
+    :class:`~shapiq.vision.architecture.ClassificationArchitecture`) and returns a
     ``(B, 2)`` tensor.  The sum is accumulated in float64 so that comparisons
     against numpy float64 references are exact for integer-valued images.
     """
@@ -77,7 +77,7 @@ def three_player_masks() -> np.ndarray:
 
 
 class MockViT:
-    """HF-style ViT mock for :class:`TransformerArchitecture` tests.
+    """HF-style ViT mock for :class:`ViTClassificationArchitecture` tests.
 
     ``config.image_size=24`` and ``config.patch_size=8`` yield ``grid_size=3``,
     compatible with the default 9-player patch grid.  With ``bool_masked_pos``
@@ -120,8 +120,8 @@ def image_24x24() -> np.ndarray:
 
 
 @pytest.fixture
-def transformer_architecture() -> TransformerArchitecture:
-    return TransformerArchitecture(
+def transformer_architecture() -> ViTClassificationArchitecture:
+    return ViTClassificationArchitecture(
         model=MockViT(),
         vit_processor=MockViTProcessor(),
         masking_strategy=BoolMaskedPosStrategy(),

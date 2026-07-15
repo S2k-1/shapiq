@@ -48,7 +48,7 @@ plt.show()
 # by the per-channel mean colour of the original image.
 
 from shapiq.vision import ImageExplainer
-from shapiq.vision.architecture import CNNArchitecture
+from shapiq.vision.architecture import ClassificationArchitecture
 
 # %%
 # Load a pre-trained ResNet-18 and set it to evaluation mode.
@@ -75,7 +75,7 @@ tensor_image = tensor_and_norm(resized_image)
 
 # %%
 # Build the architecture strategy.  The
-# :class:`~shapiq.vision.architecture.CNNArchitecture` wraps the model and
+# :class:`~shapiq.vision.architecture.ClassificationArchitecture` wraps the model and
 # handles the forward pass. By default it will compute SLIC superpixel masks
 # aiming at around 16 players and apply mean-color masking for absent players.
 # To use zero masking instead pass ``masking_strategy=ZeroMasking()``.
@@ -83,7 +83,7 @@ tensor_image = tensor_and_norm(resized_image)
 # To use a different player partition (fixed grid or custom masks) see the
 # :ref:`sphx_glr_auto_examples_vision_plot_image_players.py` example.
 
-cnn_arch = CNNArchitecture(
+cnn_arch = ClassificationArchitecture(
     model=resnet,
 )
 
@@ -142,7 +142,7 @@ cnn_iv.plot_network(feature_names=player_names_cnn)
 # players are masked in latent space by zeroing the mask-token embedding
 # before the forward pass.
 #
-# The :class:`~shapiq.vision.architecture.TransformerArchitecture` uses the
+# The :class:`~shapiq.vision.architecture.ViTClassificationArchitecture` uses the
 # Hugging Face processor for preprocessing and runs a batched forward pass.
 # By default it uses :class:`~shapiq.vision.players.PatchStrategy` (9 players, 3x3 grid) and
 # :class:`~shapiq.vision.masking.MaskTokenStrategy`, which zeros the
@@ -151,7 +151,7 @@ cnn_iv.plot_network(feature_names=player_names_cnn)
 
 from transformers import ViTForImageClassification, ViTImageProcessor
 
-from shapiq.vision.architecture import TransformerArchitecture
+from shapiq.vision.architecture import ViTClassificationArchitecture
 
 # %%
 # Load ViT-B/32 from Hugging Face.
@@ -162,12 +162,12 @@ vit_model = ViTForImageClassification.from_pretrained(vit_name)
 vit_model.eval()
 
 # %%
-# Build the architecture strategy.  The :class:`~shapiq.vision.architecture.TransformerArchitecture`
+# Build the architecture strategy.  The :class:`~shapiq.vision.architecture.ViTClassificationArchitecture`
 # wraps the model and the Hugging Face processor. Preprocessing (resizing,
 # normalization, conversion to ``pixel_values``) is handled internally by
 # the processor, so we pass the original PIL image directly.
 
-vit_arch = TransformerArchitecture(
+vit_arch = ViTClassificationArchitecture(
     model=vit_model,
     vit_processor=vit_processor,
 )

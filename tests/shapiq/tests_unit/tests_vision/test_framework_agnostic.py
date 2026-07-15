@@ -111,7 +111,7 @@ class TestLazyImport:
                 with pytest.raises(ImportError, match=_INSTALL_HINT):
                     placeholder()
                 with pytest.raises(ImportError, match=_INSTALL_HINT):
-                    vision.__getattr__("CNNArchitecture")
+                    vision.__getattr__("ClassificationArchitecture")
         finally:
             for name, module in saved.items():
                 if module is not None:

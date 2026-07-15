@@ -9,7 +9,7 @@ from PIL import Image
 
 from shapiq.game_theory.exact import ExactComputer
 from shapiq.imputer.base import Imputer
-from shapiq.vision.architecture import CNNArchitecture
+from shapiq.vision.architecture import ClassificationArchitecture
 from shapiq.vision.imputer import ImageImputer
 from shapiq.vision.masking import MeanColorMasking, ZeroMasking
 
@@ -17,7 +17,7 @@ from .conftest import ChannelSumModel, FixedMasksStrategy, expected_full_coaliti
 
 
 def _build_imputer(image, masks, masking_strategy, *, normalize=True, batch_size=32):
-    arch = CNNArchitecture(
+    arch = ClassificationArchitecture(
         model=ChannelSumModel(),
         masking_strategy=masking_strategy,
         player_strategy=FixedMasksStrategy(masks),
@@ -131,7 +131,7 @@ class TestImageImputerInputFormats:
         ],
     )
     def test_accepts_common_image_formats(self, tiny_image, two_player_masks, image_input) -> None:
-        arch = CNNArchitecture(
+        arch = ClassificationArchitecture(
             model=ChannelSumModel(),
             masking_strategy=ZeroMasking(),
             player_strategy=FixedMasksStrategy(two_player_masks),
@@ -149,7 +149,7 @@ class TestImageImputerInputFormats:
     def test_accepts_torch_hwc_tensor(self, three_player_masks) -> None:
         """HWC tensors are only unambiguous when H is not in {1, 3, 4}."""
         image = np.random.default_rng(0).integers(0, 255, size=(6, 6, 3)).astype(np.float64)
-        arch = CNNArchitecture(
+        arch = ClassificationArchitecture(
             model=ChannelSumModel(),
             masking_strategy=ZeroMasking(),
             player_strategy=FixedMasksStrategy(three_player_masks),

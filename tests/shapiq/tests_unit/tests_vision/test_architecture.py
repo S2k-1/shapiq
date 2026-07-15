@@ -1,8 +1,8 @@
 """Tests for ``shapiq.vision.architecture``.
 
 The current package exposes two concrete architecture strategies:
-:class:`CNNArchitecture` (pixel-space masking) and
-:class:`TransformerArchitecture` (token-space masking).  Both cache
+:class:`ClassificationArchitecture` (pixel-space masking) and
+:class:`ViTClassificationArchitecture` (token-space masking).  Both cache
 image-dependent state in :meth:`prepare` and evaluate coalitions in
 :meth:`value_function`.
 """
@@ -16,9 +16,9 @@ import pytest
 import torch
 
 from shapiq.vision.architecture import (
-    CNNArchitecture,
+    ClassificationArchitecture,
     ModelArchitectureStrategy,
-    TransformerArchitecture,
+    ViTClassificationArchitecture,
 )
 from shapiq.vision.masking import (
     BoolMaskedPosStrategy,
@@ -35,28 +35,28 @@ def _to_numpy(tensor: torch.Tensor) -> np.ndarray:
     return tensor.detach().cpu().numpy()
 
 
-class TestCNNArchitecture:
+class TestClassificationArchitecture:
     def test_is_architecture_strategy(self) -> None:
-        arch = CNNArchitecture(model=ChannelSumModel())
+        arch = ClassificationArchitecture(model=ChannelSumModel())
         assert isinstance(arch, ModelArchitectureStrategy)
 
     def test_default_player_strategy(self) -> None:
-        arch = CNNArchitecture(model=ChannelSumModel())
+        arch = ClassificationArchitecture(model=ChannelSumModel())
         strategy = arch.default_player_strategy()
         assert isinstance(strategy, SuperpixelStrategy)
         assert strategy.n_segments == 10
 
     def test_default_masking_strategy(self) -> None:
-        arch = CNNArchitecture(model=ChannelSumModel())
+        arch = ClassificationArchitecture(model=ChannelSumModel())
         assert isinstance(arch.default_masking_strategy(), MeanColorMasking)
 
     def test_explicit_masking_strategy_used(self) -> None:
         zero = ZeroMasking()
-        arch = CNNArchitecture(model=ChannelSumModel(), masking_strategy=zero)
+        arch = ClassificationArchitecture(model=ChannelSumModel(), masking_strategy=zero)
         assert arch._masking_strategy is zero
 
     def test_prepare_caches_player_masks(self, tiny_image, two_player_masks) -> None:
-        arch = CNNArchitecture(
+        arch = ClassificationArchitecture(
             model=ChannelSumModel(), player_strategy=FixedMasksStrategy(two_player_masks)
         )
         assert not hasattr(arch, "_player_masks")
@@ -65,7 +65,7 @@ class TestCNNArchitecture:
         np.testing.assert_array_equal(_to_numpy(arch.player_masks), two_player_masks)
 
     def test_prepare_sets_class_id(self, tiny_image, two_player_masks) -> None:
-        arch = CNNArchitecture(
+        arch = ClassificationArchitecture(
             model=ChannelSumModel(), player_strategy=FixedMasksStrategy(two_player_masks)
         )
         arch.prepare(tiny_image)
@@ -73,14 +73,14 @@ class TestCNNArchitecture:
         assert arch._class_id == 0
 
     def test_prepare_class_index_overrides_argmax(self, tiny_image, two_player_masks) -> None:
-        arch = CNNArchitecture(
+        arch = ClassificationArchitecture(
             model=ChannelSumModel(), player_strategy=FixedMasksStrategy(two_player_masks)
         )
         arch.prepare(tiny_image, class_index=1)
         assert arch._class_id == 1
 
     def test_value_function_returns_value_per_coalition(self, tiny_image, two_player_masks) -> None:
-        arch = CNNArchitecture(
+        arch = ClassificationArchitecture(
             model=ChannelSumModel(),
             masking_strategy=ZeroMasking(),
             player_strategy=FixedMasksStrategy(two_player_masks),
@@ -102,7 +102,7 @@ class TestCNNArchitecture:
         assert out[0] == pytest.approx(0.0)
 
     def test_value_function_linear_decomposition(self, tiny_image, two_player_masks) -> None:
-        arch = CNNArchitecture(
+        arch = ClassificationArchitecture(
             model=ChannelSumModel(),
             masking_strategy=ZeroMasking(),
             player_strategy=FixedMasksStrategy(two_player_masks),
@@ -117,7 +117,7 @@ class TestCNNArchitecture:
         pytest.importorskip("skimage")
         rng = np.random.default_rng(0)
         image = rng.integers(0, 255, size=(32, 32, 3)).astype(np.float64)
-        arch = CNNArchitecture(
+        arch = ClassificationArchitecture(
             model=ChannelSumModel(),
             masking_strategy=ZeroMasking(),
             player_strategy=SuperpixelStrategy(n_segments=4),
@@ -132,20 +132,20 @@ class TestCNNArchitecture:
         assert np.isfinite(out).all()
 
 
-class TestTransformerArchitecture:
+class TestViTClassificationArchitecture:
     def test_is_architecture_strategy(self) -> None:
-        arch = TransformerArchitecture(model=MockViT(), vit_processor=MockViTProcessor())
+        arch = ViTClassificationArchitecture(model=MockViT(), vit_processor=MockViTProcessor())
         assert isinstance(arch, ModelArchitectureStrategy)
 
     def test_default_player_strategy_uses_model_config(self) -> None:
-        arch = TransformerArchitecture(model=MockViT(), vit_processor=MockViTProcessor())
+        arch = ViTClassificationArchitecture(model=MockViT(), vit_processor=MockViTProcessor())
         strategy = arch.default_player_strategy()
         assert isinstance(strategy, PatchStrategy)
         assert strategy.grid_size == 3  # 24 // 8
         assert strategy.n_players == 9
 
     def test_default_masking_strategy(self) -> None:
-        arch = TransformerArchitecture(model=MockViT(), vit_processor=MockViTProcessor())
+        arch = ViTClassificationArchitecture(model=MockViT(), vit_processor=MockViTProcessor())
         assert isinstance(arch.default_masking_strategy(), MaskTokenStrategy)
 
     def test_init_succeeds_for_standard_vit(self) -> None:
@@ -153,7 +153,7 @@ class TestTransformerArchitecture:
         model = SimpleNamespace(
             config=SimpleNamespace(image_size=224, patch_size=16, hidden_size=768)
         )
-        arch = TransformerArchitecture(model=model, vit_processor=object())
+        arch = ViTClassificationArchitecture(model=model, vit_processor=object())
         assert isinstance(arch.default_player_strategy(), PatchStrategy)
 
     def test_default_player_strategy_adapts_to_standard_vit_grid(self) -> None:
@@ -161,14 +161,14 @@ class TestTransformerArchitecture:
         model = SimpleNamespace(
             config=SimpleNamespace(image_size=224, patch_size=16, hidden_size=768)
         )
-        arch = TransformerArchitecture(model=model, vit_processor=object())
+        arch = ViTClassificationArchitecture(model=model, vit_processor=object())
         strategy = arch.default_player_strategy()
         assert strategy.grid_size == 14
         assert strategy.n_players == 4
         assert strategy.grid_size % strategy.side == 0
 
     def test_prepare_sets_class_id_and_caches_state(self, image_24x24) -> None:
-        arch = TransformerArchitecture(
+        arch = ViTClassificationArchitecture(
             model=MockViT(),
             vit_processor=MockViTProcessor(),
             masking_strategy=BoolMaskedPosStrategy(),
@@ -180,7 +180,7 @@ class TestTransformerArchitecture:
         assert arch._token_masks is not None
 
     def test_prepare_class_index_overrides_argmax(self, image_24x24) -> None:
-        arch = TransformerArchitecture(
+        arch = ViTClassificationArchitecture(
             model=MockViT(),
             vit_processor=MockViTProcessor(),
             masking_strategy=BoolMaskedPosStrategy(),
@@ -189,7 +189,7 @@ class TestTransformerArchitecture:
         assert arch._class_id == 1
 
     def test_value_function_shape_and_monotonicity(self, image_24x24) -> None:
-        arch = TransformerArchitecture(
+        arch = ViTClassificationArchitecture(
             model=MockViT(),
             vit_processor=MockViTProcessor(),
             masking_strategy=BoolMaskedPosStrategy(),
@@ -210,7 +210,7 @@ class TestTransformerArchitecture:
         assert out[0] < out[1] < out[2] < out[3]
 
     def test_value_function_empty_coalition_is_half(self, image_24x24) -> None:
-        arch = TransformerArchitecture(
+        arch = ViTClassificationArchitecture(
             model=MockViT(),
             vit_processor=MockViTProcessor(),
             masking_strategy=BoolMaskedPosStrategy(),
@@ -222,7 +222,7 @@ class TestTransformerArchitecture:
 
     def test_value_function_with_mask_token_strategy(self, image_24x24) -> None:
         model = MockViT()
-        arch = TransformerArchitecture(
+        arch = ViTClassificationArchitecture(
             model=model,
             vit_processor=MockViTProcessor(),
             masking_strategy=MaskTokenStrategy(model),
@@ -250,7 +250,7 @@ class TestArchitectureOutputScale:
         transformer_architecture,
         image_24x24,
     ) -> None:
-        cnn = CNNArchitecture(
+        cnn = ClassificationArchitecture(
             model=ChannelSumModel(),
             masking_strategy=ZeroMasking(),
             player_strategy=FixedMasksStrategy(two_player_masks),

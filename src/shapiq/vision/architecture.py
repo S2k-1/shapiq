@@ -122,7 +122,7 @@ class ModelArchitectureStrategy(ABC):
         ...
 
 
-class CNNArchitecture(ModelArchitectureStrategy):
+class ClassificationArchitecture(ModelArchitectureStrategy):
     """Architecture strategy for CNN models (e.g. ResNet) using pixel-space masking.
 
     Players are defined in pixel space. Absent players are
@@ -222,7 +222,7 @@ class CNNArchitecture(ModelArchitectureStrategy):
         return self._model
 
 
-class TransformerArchitecture(ModelArchitectureStrategy):
+class ViTClassificationArchitecture(ModelArchitectureStrategy):
     """Architecture strategy for Vision Transformer models using latent-space masking.
 
     Players correspond to groups of patch tokens. Absent players are masked

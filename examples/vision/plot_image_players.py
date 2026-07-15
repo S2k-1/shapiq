@@ -18,7 +18,7 @@ ResNet-18 and ImageNet sample image:
   segmenter output can be plugged in directly
 
 All three strategies plug into the same
-:class:`~shapiq.vision.architecture.CNNArchitecture` /
+:class:`~shapiq.vision.architecture.ClassificationArchitecture` /
 :class:`~shapiq.vision.explainer.ImageExplainer` pipeline without any other
 changes.
 
@@ -42,7 +42,7 @@ from torchvision import models, transforms
 # We reuse the same ImageNet sample and ResNet-18 model as in the quickstart
 # notebook.  The image is preprocessed and shared across all three player strategies.
 from shapiq.vision import ImageExplainer
-from shapiq.vision.architecture import CNNArchitecture
+from shapiq.vision.architecture import ClassificationArchitecture
 from shapiq.vision.masking import MeanColorMasking
 
 image_path = Path("imagenet_sample.png")
@@ -107,10 +107,10 @@ print(f"Grid players: {grid_strategy.n_players}")
 # %%
 # Explain with Grid Players
 # ---------------------------
-# We pass the ``GridStrategy`` instance to ``CNNArchitecture`` via the
+# We pass the ``GridStrategy`` instance to ``ClassificationArchitecture`` via the
 # ``player_strategy`` argument.  Everything else stays at its default.
 
-cnn_arch_grid = CNNArchitecture(
+cnn_arch_grid = ClassificationArchitecture(
     model=resnet,
     player_strategy=grid_strategy,
 )
@@ -134,7 +134,7 @@ iv_grid.plot_image_attributions(
 # ========================================
 #
 # :class:`~shapiq.vision.players.SuperpixelStrategy` runs SLIC internally
-# and is the default player strategy for ``CNNArchitecture``.  It is shown
+# and is the default player strategy for ``ClassificationArchitecture``.  It is shown
 # here for comparison — see the quickstart notebook for a full walkthrough.
 # The number of superpixels (players) might increase or decrease from the
 # requested ``nsegments`` depending on the SLIC output.
@@ -187,7 +187,7 @@ custom_masks = custom_strategy.get_masks(image_np)
 # ----------------------------
 # With 64 players a larger budget improves estimate quality.
 
-cnn_arch_custom = CNNArchitecture(
+cnn_arch_custom = ClassificationArchitecture(
     model=resnet,
     player_strategy=custom_strategy,
     masking_strategy=MeanColorMasking(),

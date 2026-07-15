@@ -7,7 +7,7 @@ import pytest
 
 from shapiq.interaction_values import InteractionValues
 from shapiq.vision import ImageExplainer
-from shapiq.vision.architecture import CNNArchitecture
+from shapiq.vision.architecture import ClassificationArchitecture
 from shapiq.vision.imputer import ImageImputer
 from shapiq.vision.masking import ZeroMasking
 from shapiq.vision.players import CNNPlayerStrategy
@@ -16,7 +16,7 @@ from .conftest import ChannelSumModel, FixedMasksStrategy
 
 
 def _build_arch(masks):
-    return CNNArchitecture(
+    return ClassificationArchitecture(
         model=ChannelSumModel(),
         masking_strategy=ZeroMasking(),
         player_strategy=FixedMasksStrategy(masks),
@@ -191,7 +191,7 @@ class TestImageExplainer:
 
     def test_reuse_across_images_rebuilds_approximator(self) -> None:
         strategy = ShapeKeyedStrategy({(4, 4): 2, (6, 6): 3})
-        arch = CNNArchitecture(
+        arch = ClassificationArchitecture(
             model=ChannelSumModel(), masking_strategy=ZeroMasking(), player_strategy=strategy
         )
         explainer = ImageExplainer(model=arch, data=_image((4, 4), 0), index="SV", random_state=0)
@@ -207,7 +207,7 @@ class TestImageExplainer:
         from shapiq.approximator import KernelSHAP
 
         strategy = ShapeKeyedStrategy({(4, 4): 2, (6, 6): 3})
-        arch = CNNArchitecture(
+        arch = ClassificationArchitecture(
             model=ChannelSumModel(), masking_strategy=ZeroMasking(), player_strategy=strategy
         )
         explainer = ImageExplainer(

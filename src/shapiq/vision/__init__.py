@@ -7,8 +7,8 @@ from typing import TYPE_CHECKING
 
 _LAZY_MODULES: dict[str, str] = {
     "ModelArchitectureStrategy": "architecture",
-    "CNNArchitecture": "architecture",
-    "TransformerArchitecture": "architecture",
+    "ClassificationArchitecture": "architecture",
+    "ViTClassificationArchitecture": "architecture",
     "ImageExplainer": "explainer",
     "ImageImputer": "imputer",
     "CNNMaskingStrategy": "masking",
@@ -61,9 +61,9 @@ def __dir__() -> list[str]:
 
 if TYPE_CHECKING:
     from .architecture import (
-        CNNArchitecture,
+        ClassificationArchitecture,
         ModelArchitectureStrategy,
-        TransformerArchitecture,
+        ViTClassificationArchitecture,
     )
     from .explainer import ImageExplainer
     from .imputer import ImageImputer
@@ -87,8 +87,8 @@ if TYPE_CHECKING:
 __all__ = [
     # Architecture
     "ModelArchitectureStrategy",
-    "CNNArchitecture",
-    "TransformerArchitecture",
+    "ClassificationArchitecture",
+    "ViTClassificationArchitecture",
     # Explainer
     "ImageExplainer",
     # Imputer

@@ -28,16 +28,16 @@ class ImageExplainer(Explainer):
     """Explainer for vision models based on Shapley interaction values.
 
     Example:
-        >>> from shapiq.vision.architecture import CNNArchitecture, TransformerArchitecture
+        >>> from shapiq.vision.architecture import ClassificationArchitecture, ViTClassificationArchitecture
         >>> from shapiq.vision.explainer import ImageExplainer
 
         >>> # --- CNN (ResNet-style) ---
-        >>> arch = CNNArchitecture(model=my_resnet)
+        >>> arch = ClassificationArchitecture(model=my_resnet)
         >>> explainer = ImageExplainer(model_architecture=arch, data=my_image)
         >>> iv = explainer.explain_function(x=None, budget=256)
 
         >>> # --- ViT ---
-        >>> arch = TransformerArchitecture(model=my_vit, vit_processor=processor)
+        >>> arch = ViTClassificationArchitecture(model=my_vit, vit_processor=processor)
         >>> explainer = ImageExplainer(model_architecture=arch, data=my_image,
                                    index="SII", max_order=2)
         >>> iv = explainer.explain_function(x=None, budget=512)
@@ -67,8 +67,8 @@ class ImageExplainer(Explainer):
         Args:
             model: A configured
                 :class:`~shapiq.vision.architecture.ModelArchitectureStrategy`
-                (e.g. :class:`~shapiq.vision.architecture.CNNArchitecture` or
-                :class:`~shapiq.vision.architecture.TransformerArchitecture`).
+                (e.g. :class:`~shapiq.vision.architecture.ClassificationArchitecture` or
+                :class:`~shapiq.vision.architecture.ViTClassificationArchitecture`).
                 This object owns the model, the player strategy, and the masking
                 strategy. Sensible defaults are chosen automatically if no custom
                 strategies are passed to the architecture constructor.
