@@ -11,15 +11,15 @@ _LAZY_MODULES: dict[str, str] = {
     "ViTClassificationArchitecture": "architecture",
     "ImageExplainer": "explainer",
     "ImageImputer": "imputer",
-    "CNNMaskingStrategy": "masking",
-    "TransformerMaskingStrategy": "masking",
+    "PixelBasedMaskingStrategy": "masking",
+    "LatentBasedMaskingStrategy": "masking",
     "MeanColorMasking": "masking",
     "ZeroMasking": "masking",
     "BoolMaskedPosStrategy": "masking",
     "MaskTokenStrategy": "masking",
     "PlayerStrategy": "players",
-    "CNNPlayerStrategy": "players",
-    "TransformerPlayerStrategy": "players",
+    "PixelBasedPlayerStrategy": "players",
+    "LatentBasedPlayerStrategy": "players",
     "SuperpixelStrategy": "players",
     "PatchStrategy": "players",
 }
@@ -69,18 +69,18 @@ if TYPE_CHECKING:
     from .imputer import ImageImputer
     from .masking import (
         BoolMaskedPosStrategy,
-        CNNMaskingStrategy,
+        LatentBasedMaskingStrategy,
         MaskTokenStrategy,
         MeanColorMasking,
-        TransformerMaskingStrategy,
+        PixelBasedMaskingStrategy,
         ZeroMasking,
     )
     from .players import (
-        CNNPlayerStrategy,
+        LatentBasedPlayerStrategy,
         PatchStrategy,
+        PixelBasedPlayerStrategy,
         PlayerStrategy,
         SuperpixelStrategy,
-        TransformerPlayerStrategy,
     )
 
 
@@ -94,16 +94,16 @@ __all__ = [
     # Imputer
     "ImageImputer",
     # Masking
-    "CNNMaskingStrategy",
-    "TransformerMaskingStrategy",
+    "PixelBasedMaskingStrategy",
+    "LatentBasedMaskingStrategy",
     "MeanColorMasking",
     "ZeroMasking",
     "BoolMaskedPosStrategy",
     "MaskTokenStrategy",
     # Players
     "PlayerStrategy",
-    "CNNPlayerStrategy",
-    "TransformerPlayerStrategy",
+    "PixelBasedPlayerStrategy",
+    "LatentBasedPlayerStrategy",
     "SuperpixelStrategy",
     "PatchStrategy",
 ]

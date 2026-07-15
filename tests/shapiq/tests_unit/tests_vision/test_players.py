@@ -6,20 +6,20 @@ import numpy as np
 import pytest
 
 from shapiq.vision.players import (
-    CNNPlayerStrategy,
     CustomPlayerStrategy,
     GridStrategy,
+    LatentBasedPlayerStrategy,
     PatchStrategy,
+    PixelBasedPlayerStrategy,
     PlayerStrategy,
     SuperpixelStrategy,
-    TransformerPlayerStrategy,
 )
 
 
 class TestPatchStrategy:
     def test_is_transformer_player_strategy(self) -> None:
         strategy = PatchStrategy(grid_size=4, n_players=4)
-        assert isinstance(strategy, TransformerPlayerStrategy)
+        assert isinstance(strategy, LatentBasedPlayerStrategy)
         assert isinstance(strategy, PlayerStrategy)
 
     def test_n_players_property(self) -> None:
@@ -82,7 +82,7 @@ class TestPatchStrategy:
 class TestSuperpixelStrategy:
     def test_is_cnn_player_strategy(self) -> None:
         strategy = SuperpixelStrategy(n_segments=5)
-        assert isinstance(strategy, CNNPlayerStrategy)
+        assert isinstance(strategy, PixelBasedPlayerStrategy)
         assert isinstance(strategy, PlayerStrategy)
 
     def test_n_players_matches_n_segments(self) -> None:

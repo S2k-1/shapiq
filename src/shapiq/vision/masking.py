@@ -39,7 +39,7 @@ class MaskingStrategy(ModelCompatible, ABC):
     compatible_model_protocol = VisionModel
 
 
-class CNNMaskingStrategy(MaskingStrategy, ABC):
+class PixelBasedMaskingStrategy(MaskingStrategy, ABC):
     """Base class for pixel-space masking strategies used with CNN models.
 
     Implementations receive the original image as a ``(C, H, W)`` tensor and
@@ -95,7 +95,7 @@ class CNNMaskingStrategy(MaskingStrategy, ABC):
         return pixel_mask.view(-1, H, W)  # (n_coalitions, H, W)
 
 
-class MeanColorMasking(CNNMaskingStrategy):
+class MeanColorMasking(PixelBasedMaskingStrategy):
     """Imputes absent player regions with the per-channel mean color of the original image.
 
     The mean is computed per channel across all spatial positions of the
@@ -116,7 +116,7 @@ class MeanColorMasking(CNNMaskingStrategy):
         )
 
 
-class ZeroMasking(CNNMaskingStrategy):
+class ZeroMasking(PixelBasedMaskingStrategy):
     """Imputes absent player regions with a constant scalar value.
 
     Args:
@@ -140,7 +140,7 @@ class ZeroMasking(CNNMaskingStrategy):
         )
 
 
-class TransformerMaskingStrategy(MaskingStrategy, ABC):
+class LatentBasedMaskingStrategy(MaskingStrategy, ABC):
     """Base class for token-space masking strategies used with ViT models.
 
     Implementations convert a coalition matrix into a ``bool_masked_pos``
@@ -207,7 +207,7 @@ class TransformerMaskingStrategy(MaskingStrategy, ABC):
         return ~visible.bool()
 
 
-class BoolMaskedPosStrategy(TransformerMaskingStrategy):
+class BoolMaskedPosStrategy(LatentBasedMaskingStrategy):
     """Masks tokens by passing ``bool_masked_pos`` directly to the model forward call.
 
     This strategy requires the model to support the ``bool_masked_pos``
@@ -219,7 +219,7 @@ class BoolMaskedPosStrategy(TransformerMaskingStrategy):
         return self._to_token_mask(coalitions, token_masks)
 
 
-class MaskTokenStrategy(TransformerMaskingStrategy):
+class MaskTokenStrategy(LatentBasedMaskingStrategy):
     """Masks tokens by zeroing the mask_token embedding before the forward pass."""
 
     def __init__(self, model: Model) -> None:

@@ -9,9 +9,12 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
+import numpy as np
+
+from .custom_types import CoalitionDomain
 from .masking import MaskTokenStrategy, MeanColorMasking
 from .players import PatchStrategy, SuperpixelStrategy
-from .utils import get_torch_device, to_tensor_chw
+from .utils import extract_logits, get_torch_device, to_tensor_chw
 
 try:
     import torch
@@ -21,19 +24,17 @@ except ImportError as err:
     raise _vision_import_error from err
 
 if TYPE_CHECKING:
-    import numpy as np
-
     from shapiq.typing import Model
 
     from .masking import (
-        CNNMaskingStrategy,
+        LatentBasedMaskingStrategy,
         MaskingStrategy,
-        TransformerMaskingStrategy,
+        PixelBasedMaskingStrategy,
     )
     from .players import (
-        CNNPlayerStrategy,
+        LatentBasedPlayerStrategy,
+        PixelBasedPlayerStrategy,
         PlayerStrategy,
-        TransformerPlayerStrategy,
     )
 
 
@@ -49,19 +50,24 @@ class ModelArchitectureStrategy(ABC):
     _player_strategy: PlayerStrategy
     _masking_strategy: MaskingStrategy
 
+    coalition_domain: CoalitionDomain
+    """The coalition domain this architecture natively operates in."""
+
     def _validate_configuration(self) -> None:
-        """Validate that model, player strategy, and masking strategy are compatible."""
+        """Validate that model, player strategy, and masking strategy are compatible.
+
+        Raises:
+            TypeError: If the player and masking strategies live in different
+                coalition domains, or if their (consistent) domain is not the
+                one this architecture operates in.
+        """
         type(self._player_strategy).validate_model(self._model)
         type(self._masking_strategy).validate_model(self._model)
 
         player_domain = self._player_strategy.coalition_domain
         masking_domain = self._masking_strategy.accepted_coalition_domain
 
-        if (
-            self._player_strategy.coalition_domain
-            is not self._masking_strategy.accepted_coalition_domain
-            and player_domain is not masking_domain
-        ):
+        if player_domain is not masking_domain:
             msg = (
                 "Player strategy and masking strategy are incompatible: "
                 f"{type(self._player_strategy).__name__} uses coalition domain "
@@ -71,13 +77,31 @@ class ModelArchitectureStrategy(ABC):
             )
             raise TypeError(msg)
 
+        if player_domain is not self.coalition_domain:
+            hint = (
+                "Token-space strategies require ViTClassificationArchitecture and a model "
+                "that honors bool_masked_pos."
+                if self.coalition_domain is CoalitionDomain.PIXEL
+                else "Pixel-space masking is provided by ClassificationArchitecture(model=model, "
+                "processor=processor, ...), which supports any classification model, "
+                "including ViT and Swin."
+            )
+            msg = (
+                f"{type(self).__name__} operates in coalition domain "
+                f"{self.coalition_domain.value!r}, but "
+                f"{type(self._player_strategy).__name__} and "
+                f"{type(self._masking_strategy).__name__} use {player_domain.value!r}. "
+                f"{hint}"
+            )
+            raise TypeError(msg)
+
     @abstractmethod
     def default_player_strategy(self) -> PlayerStrategy:
         """Return the default player strategy for this architecture."""
         ...
 
     @abstractmethod
-    def default_masking_strategy(self) -> CNNMaskingStrategy | TransformerMaskingStrategy:
+    def default_masking_strategy(self) -> PixelBasedMaskingStrategy | LatentBasedMaskingStrategy:
         """Return the default masking strategy for this architecture."""
         ...
 
@@ -123,35 +147,52 @@ class ModelArchitectureStrategy(ABC):
 
 
 class ClassificationArchitecture(ModelArchitectureStrategy):
-    """Architecture strategy for CNN models (e.g. ResNet) using pixel-space masking.
+    """Architecture strategy for classification models using pixel-space masking.
 
     Players are defined in pixel space. Absent players are
     replaced by the masking strategy before the image batch is forwarded
     through the model.
+
+    This is also the fallback path for Hugging Face models that do not
+    support token masking (e.g. Swin, BEiT, MobileViT, LeViT, CvT,
+    SegFormer): pass the matching ``processor`` and each masked image is
+    preprocessed with it before the forward pass, with logits read from the
+    output object.
     """
 
-    _masking_strategy: CNNMaskingStrategy
-    _player_strategy: CNNPlayerStrategy
+    _masking_strategy: PixelBasedMaskingStrategy
+    _player_strategy: PixelBasedPlayerStrategy
+
+    coalition_domain = CoalitionDomain.PIXEL
 
     def __init__(
         self,
         model: Model,
-        masking_strategy: CNNMaskingStrategy | None = None,
-        player_strategy: CNNPlayerStrategy | None = None,
+        masking_strategy: PixelBasedMaskingStrategy | None = None,
+        player_strategy: PixelBasedPlayerStrategy | None = None,
+        processor: Model | None = None,
     ) -> None:
-        """Initialize the CNN architecture strategy.
+        """Initialize the classification architecture strategy.
 
         Args:
-            model: A PyTorch CNN model (e.g. :class:`torchvision.models.ResNet`).
+            model: A model evaluated on image batches — a PyTorch CNN
+                (e.g. :class:`torchvision.models.ResNet`) called directly on
+                the masked tensor, or any Hugging Face image classification
+                model when ``processor`` is given.
             masking_strategy: Pixel-space masking strategy. Defaults to
                 :class:`~shapiq.vision.masking.MeanColorMasking`.
             player_strategy: Player definition strategy. Defaults to
                 :class:`~shapiq.vision.players.SuperpixelStrategy` with 10
                 segments.
+            processor: Optional Hugging Face image processor. When given,
+                masking happens on the original image and every masked image
+                is preprocessed with the processor (resize, normalize) before
+                being forwarded as ``pixel_values``.
         """
         self._model = model
-        self._masking_strategy = masking_strategy or self.default_masking_strategy()
+        self._processor = processor
         self._player_strategy = player_strategy or self.default_player_strategy()
+        self._masking_strategy = masking_strategy or self.default_masking_strategy()
         self._validate_configuration()
         self._player_masks: torch.Tensor
         self._image_tensor: torch.Tensor
@@ -176,18 +217,41 @@ class ClassificationArchitecture(ModelArchitectureStrategy):
             class_index: Index of the class to explain.
         """
         device = get_torch_device(self._model)
-        self._image_tensor = to_tensor_chw(image, device=device)
+        if self._processor is not None:
+            # Keep the image in its natural 0-255 range so masked images can
+            # round-trip through the processor as uint8 arrays.
+            arr = image.astype(np.float32)
+            if image.dtype != np.uint8 and arr.size > 0 and arr.max() <= 1.0:
+                arr = arr * 255.0
+            self._image_tensor = torch.from_numpy(arr).permute(2, 0, 1).to(device)
+        else:
+            self._image_tensor = to_tensor_chw(image, device=device)
         self._player_masks = torch.from_numpy(self._player_strategy.get_masks(image)).to(device)
 
-        if not self._class_id and not class_index:
-            with torch.no_grad():
-                logits = self._model(self._image_tensor.unsqueeze(0))
-            self._class_id = int(logits.argmax(dim=1).item())
-        elif class_index is not None:
+        if class_index is not None:
             self._class_id = class_index
+        elif self._class_id is None:
+            with torch.no_grad():
+                logits = self._forward(self._image_tensor.unsqueeze(0))
+            self._class_id = int(logits.argmax(dim=1).item())
+
+    def _forward(self, batch: torch.Tensor) -> torch.Tensor:
+        """Forward a ``(B, C, H, W)`` image batch and return ``(B, n_classes)`` logits.
+
+        Without a processor the batch goes straight into the model. With a
+        processor, each image is converted back to a uint8 ``(H, W, C)`` array
+        and preprocessed before the forward pass.
+        """
+        if self._processor is None:
+            return extract_logits(self._model(batch))
+
+        arrays = batch.clamp(0.0, 255.0).round().to(torch.uint8).permute(0, 2, 3, 1).cpu().numpy()
+        inputs = self._processor(images=list(arrays), return_tensors="pt")
+        pixel_values = inputs["pixel_values"].to(get_torch_device(self._model))
+        return extract_logits(self._model(pixel_values=pixel_values))
 
     def value_function(self, coalitions: torch.Tensor) -> torch.Tensor:
-        """Evaluate the CNN for a batch of coalitions.
+        """Evaluate the model for a batch of coalitions.
 
         Creates masked image tensors via the masking strategy in a single
         batched model call.
@@ -201,9 +265,11 @@ class ClassificationArchitecture(ModelArchitectureStrategy):
         """
         with torch.no_grad():
             masked_batch = self._masking_strategy.apply(
-                self._image_tensor, self._player_masks, coalitions
+                self._image_tensor,
+                self._player_masks,
+                coalitions.to(self._player_masks.device),
             )
-            logits = self._model(masked_batch)
+            logits = self._forward(masked_batch)
         return logits[:, self._class_id]
 
     @property
@@ -229,15 +295,17 @@ class ViTClassificationArchitecture(ModelArchitectureStrategy):
     in token space via ``bool_masked_pos`` before the forward pass.
     """
 
-    _masking_strategy: TransformerMaskingStrategy
-    _player_strategy: TransformerPlayerStrategy
+    _masking_strategy: LatentBasedMaskingStrategy
+    _player_strategy: LatentBasedPlayerStrategy
+
+    coalition_domain = CoalitionDomain.TOKEN
 
     def __init__(
         self,
         model: Model,
         vit_processor: Model,
-        masking_strategy: TransformerMaskingStrategy | None = None,
-        player_strategy: TransformerPlayerStrategy | None = None,
+        masking_strategy: LatentBasedMaskingStrategy | None = None,
+        player_strategy: LatentBasedPlayerStrategy | None = None,
     ) -> None:
         """Initialize the Transformer architecture strategy.
 
@@ -253,8 +321,8 @@ class ViTClassificationArchitecture(ModelArchitectureStrategy):
         """
         self._model = model
         self.processor = vit_processor
-        self._masking_strategy = masking_strategy or self.default_masking_strategy()
         self._player_strategy = player_strategy or self.default_player_strategy()
+        self._masking_strategy = masking_strategy or self.default_masking_strategy()
         self._validate_configuration()
         self._pixel_values: torch.Tensor
         self._player_masks: torch.Tensor

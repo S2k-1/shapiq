@@ -52,7 +52,7 @@ class PlayerStrategy(ModelCompatible, ABC):
         ...
 
 
-class CNNPlayerStrategy(PlayerStrategy, ABC):
+class PixelBasedPlayerStrategy(PlayerStrategy, ABC):
     """Abstract base class for player strategies that returns spatial masks in pixel space.
 
     ``coalition_domain`` is ``CoalitionDomain.PIXEL`` for these strategies.
@@ -74,7 +74,7 @@ class CNNPlayerStrategy(PlayerStrategy, ABC):
         ...
 
 
-class CustomPlayerStrategy(CNNPlayerStrategy):
+class CustomPlayerStrategy(PixelBasedPlayerStrategy):
     """Uses a set of pre-computed binary masks as players provided by the user.
 
     Provided masks may overlap — pixels covered by multiple
@@ -178,7 +178,7 @@ class CustomPlayerStrategy(CNNPlayerStrategy):
         return self._masks.shape[0]
 
 
-class GridStrategy(CNNPlayerStrategy):
+class GridStrategy(PixelBasedPlayerStrategy):
     """Splits the image into a regular rectangular grid of players.
 
     The strategy must be initialized implicitly via :meth:`get_masks`
@@ -348,7 +348,7 @@ class GridStrategy(CNNPlayerStrategy):
         return self.grid_y * self.grid_x
 
 
-class SuperpixelStrategy(CNNPlayerStrategy):
+class SuperpixelStrategy(PixelBasedPlayerStrategy):
     """Splits the image into superpixels using SLIC.
 
     Uses the SLIC or SLICO algorithm from :mod:`skimage.segmentation` to
@@ -435,7 +435,7 @@ class SuperpixelStrategy(CNNPlayerStrategy):
         return self._n_players
 
 
-class TransformerPlayerStrategy(PlayerStrategy, ABC):
+class LatentBasedPlayerStrategy(PlayerStrategy, ABC):
     """Abstract base class for token-space player strategies.
 
     ``coalition_domain`` is ``CoalitionDomain.TOKEN`` for these strategies.
@@ -465,7 +465,7 @@ class TransformerPlayerStrategy(PlayerStrategy, ABC):
         ...
 
 
-class PatchStrategy(TransformerPlayerStrategy):
+class PatchStrategy(LatentBasedPlayerStrategy):
     """Splits the image into patches for ViT models.
 
     Each player corresponds to a group of tokens in the latent space.

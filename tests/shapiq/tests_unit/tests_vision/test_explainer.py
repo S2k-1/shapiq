@@ -10,7 +10,7 @@ from shapiq.vision import ImageExplainer
 from shapiq.vision.architecture import ClassificationArchitecture
 from shapiq.vision.imputer import ImageImputer
 from shapiq.vision.masking import ZeroMasking
-from shapiq.vision.players import CNNPlayerStrategy
+from shapiq.vision.players import PixelBasedPlayerStrategy
 
 from .conftest import ChannelSumModel, FixedMasksStrategy
 
@@ -23,7 +23,7 @@ def _build_arch(masks):
     )
 
 
-class ShapeKeyedStrategy(CNNPlayerStrategy):
+class ShapeKeyedStrategy(PixelBasedPlayerStrategy):
     """Player strategy whose player count depends on the image size.
 
     Used to exercise reusing one explainer across images with different player

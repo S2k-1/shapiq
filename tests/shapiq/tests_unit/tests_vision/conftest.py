@@ -10,11 +10,11 @@ import torch
 
 from shapiq.vision.architecture import ViTClassificationArchitecture
 from shapiq.vision.masking import BoolMaskedPosStrategy
-from shapiq.vision.players import CNNPlayerStrategy
+from shapiq.vision.players import PixelBasedPlayerStrategy
 from shapiq.vision.utils import to_tensor_chw
 
 
-class FixedMasksStrategy(CNNPlayerStrategy):
+class FixedMasksStrategy(PixelBasedPlayerStrategy):
     """A deterministic player strategy that returns user-provided spatial masks.
 
     Useful for correctness tests where SLIC's non-determinism would interfere.

@@ -18,10 +18,10 @@ import torch
 
 from shapiq.vision.masking import (
     BoolMaskedPosStrategy,
-    CNNMaskingStrategy,
+    LatentBasedMaskingStrategy,
     MaskTokenStrategy,
     MeanColorMasking,
-    TransformerMaskingStrategy,
+    PixelBasedMaskingStrategy,
     ZeroMasking,
 )
 
@@ -44,7 +44,7 @@ def half_masks() -> torch.Tensor:
 
 class TestMeanColorMasking:
     def test_is_cnn_masking_strategy(self) -> None:
-        assert isinstance(MeanColorMasking(), CNNMaskingStrategy)
+        assert isinstance(MeanColorMasking(), PixelBasedMaskingStrategy)
 
     def test_full_coalition_preserves_image(self, image, half_masks) -> None:
         strategy = MeanColorMasking()
@@ -91,7 +91,7 @@ class TestMeanColorMasking:
 
 class TestZeroMasking:
     def test_is_cnn_masking_strategy(self) -> None:
-        assert isinstance(ZeroMasking(), CNNMaskingStrategy)
+        assert isinstance(ZeroMasking(), PixelBasedMaskingStrategy)
 
     def test_default_value_is_zero(self, image, half_masks) -> None:
         strategy = ZeroMasking()
@@ -122,12 +122,12 @@ class TestZeroMasking:
 
 def test_cnn_masking_strategy_is_abstract() -> None:
     with pytest.raises(TypeError):
-        CNNMaskingStrategy()  # type: ignore[abstract]
+        PixelBasedMaskingStrategy()  # type: ignore[abstract]
 
 
 def test_transformer_masking_strategy_is_abstract() -> None:
     with pytest.raises(TypeError):
-        TransformerMaskingStrategy()  # type: ignore[abstract]
+        LatentBasedMaskingStrategy()  # type: ignore[abstract]
 
 
 @pytest.fixture
@@ -138,7 +138,7 @@ def token_masks() -> torch.Tensor:
 
 class TestBoolMaskedPosStrategy:
     def test_is_transformer_masking_strategy(self) -> None:
-        assert isinstance(BoolMaskedPosStrategy(), TransformerMaskingStrategy)
+        assert isinstance(BoolMaskedPosStrategy(), LatentBasedMaskingStrategy)
 
     def test_all_present_coalition_masks_nothing(self, token_masks) -> None:
         strategy = BoolMaskedPosStrategy()
@@ -184,7 +184,7 @@ class _MockViTWithMaskToken:
 
 class TestMaskTokenStrategy:
     def test_is_transformer_masking_strategy(self) -> None:
-        assert isinstance(MaskTokenStrategy(_MockViTWithMaskToken()), TransformerMaskingStrategy)
+        assert isinstance(MaskTokenStrategy(_MockViTWithMaskToken()), LatentBasedMaskingStrategy)
 
     def test_apply_returns_token_mask(self, token_masks) -> None:
         strategy = MaskTokenStrategy(_MockViTWithMaskToken())
