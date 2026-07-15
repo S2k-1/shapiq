@@ -20,7 +20,9 @@ class CoalitionDomain(Enum):
 class VisionModel(Protocol):
     """Protocol for vision models called directly on image tensors."""
 
-    def __call__(self, x: torch.Tensor) -> torch.Tensor | ClassificationOutput: ...
+    def __call__(self, x: torch.Tensor) -> torch.Tensor | ClassificationOutput:
+        """Return raw logits, or an object exposing them as ``.logits``."""
+        ...
 
 
 @runtime_checkable
