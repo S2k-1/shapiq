@@ -17,7 +17,7 @@ import torch
 
 from shapiq.vision.architecture import (
     ClassificationArchitecture,
-    ModelArchitectureStrategy,
+    ModelArchitecture,
     ViTClassificationArchitecture,
 )
 from shapiq.vision.masking import (
@@ -38,7 +38,7 @@ def _to_numpy(tensor: torch.Tensor) -> np.ndarray:
 class TestClassificationArchitecture:
     def test_is_architecture_strategy(self) -> None:
         arch = ClassificationArchitecture(model=ChannelSumModel())
-        assert isinstance(arch, ModelArchitectureStrategy)
+        assert isinstance(arch, ModelArchitecture)
 
     def test_default_player_strategy(self) -> None:
         arch = ClassificationArchitecture(model=ChannelSumModel())
@@ -135,7 +135,7 @@ class TestClassificationArchitecture:
 class TestViTClassificationArchitecture:
     def test_is_architecture_strategy(self) -> None:
         arch = ViTClassificationArchitecture(model=MockViT(), vit_processor=MockViTProcessor())
-        assert isinstance(arch, ModelArchitectureStrategy)
+        assert isinstance(arch, ModelArchitecture)
 
     def test_default_player_strategy_uses_model_config(self) -> None:
         arch = ViTClassificationArchitecture(model=MockViT(), vit_processor=MockViTProcessor())

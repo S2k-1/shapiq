@@ -6,7 +6,7 @@ import importlib
 from typing import TYPE_CHECKING
 
 _LAZY_MODULES: dict[str, str] = {
-    "ModelArchitectureStrategy": "architecture",
+    "ModelArchitecture": "architecture",
     "ClassificationArchitecture": "architecture",
     "ViTClassificationArchitecture": "architecture",
     "ImageExplainer": "explainer",
@@ -62,7 +62,7 @@ def __dir__() -> list[str]:
 if TYPE_CHECKING:
     from .architecture import (
         ClassificationArchitecture,
-        ModelArchitectureStrategy,
+        ModelArchitecture,
         ViTClassificationArchitecture,
     )
     from .explainer import ImageExplainer
@@ -86,7 +86,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     # Architecture
-    "ModelArchitectureStrategy",
+    "ModelArchitecture",
     "ClassificationArchitecture",
     "ViTClassificationArchitecture",
     # Explainer

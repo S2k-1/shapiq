@@ -51,7 +51,7 @@ class TestResNetIntegration:
             player_strategy=FixedMasksStrategy(masks),
         )
         imputer = ImageImputer(
-            model_architecture=arch,
+            model=arch,
             image=image,
             normalize=False,
             batch_size=2,
@@ -105,7 +105,7 @@ class TestResNetIntegration:
             player_strategy=SuperpixelStrategy(n_segments=6),
         )
         imputer = ImageImputer(
-            model_architecture=arch,
+            model=arch,
             image=image,
             normalize=False,
             batch_size=2,
@@ -148,7 +148,7 @@ class TestViTIntegration:
         # Default MaskTokenStrategy initialises mask_token on classification ViTs.
         arch = ViTClassificationArchitecture(model=model, vit_processor=processor)
         imputer = ImageImputer(
-            model_architecture=arch,
+            model=arch,
             image=image,
             normalize=False,
             batch_size=2,

@@ -23,7 +23,7 @@ def _build_imputer(image, masks, masking_strategy, *, normalize=True, batch_size
         player_strategy=FixedMasksStrategy(masks),
     )
     return ImageImputer(
-        model_architecture=arch,
+        model=arch,
         image=image,
         normalize=normalize,
         batch_size=batch_size,
@@ -137,7 +137,7 @@ class TestImageImputerInputFormats:
             player_strategy=FixedMasksStrategy(two_player_masks),
         )
         imputer = ImageImputer(
-            model_architecture=arch,
+            model=arch,
             image=image_input(tiny_image),
             normalize=False,
         )
@@ -155,7 +155,7 @@ class TestImageImputerInputFormats:
             player_strategy=FixedMasksStrategy(three_player_masks),
         )
         imputer = ImageImputer(
-            model_architecture=arch,
+            model=arch,
             image=torch.from_numpy(image),
             normalize=False,
         )
@@ -196,7 +196,7 @@ class TestImageImputerTransformer:
         self, transformer_architecture, image_24x24
     ) -> None:
         imputer = ImageImputer(
-            model_architecture=transformer_architecture,
+            model=transformer_architecture,
             image=image_24x24,
             normalize=False,
         )
@@ -218,7 +218,7 @@ class TestImageImputerTransformer:
         self, transformer_architecture, image_24x24
     ) -> None:
         imputer = ImageImputer(
-            model_architecture=transformer_architecture,
+            model=transformer_architecture,
             image=image_24x24,
             normalize=False,
         )

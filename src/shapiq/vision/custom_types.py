@@ -13,7 +13,7 @@ class CoalitionDomain(Enum):
     """Enumeration of coalition domains used by players and masking strategies."""
 
     PIXEL = "pixel"
-    TOKEN = "token"  # noqa: S105
+    TOKEN = "token"  # noqa: S105 token is not a security issue here, it's naming for vit tokenization
 
 
 @runtime_checkable

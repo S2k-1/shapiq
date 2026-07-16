@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from shapiq.approximator.base import Approximator
     from shapiq.interaction_values import InteractionValues
 
-    from .architecture import ModelArchitectureStrategy
+    from .architecture import ModelArchitecture
     from .utils import ImageLike
 
 ImageExplainerIndices = ExplainerIndices
@@ -48,7 +48,7 @@ class ImageExplainer(Explainer):
 
     def __init__(
         self,
-        model: ModelArchitectureStrategy,
+        model: ModelArchitecture,
         data: ImageLike,
         *,
         class_index: int | None = None,
@@ -66,7 +66,7 @@ class ImageExplainer(Explainer):
 
         Args:
             model: A configured
-                :class:`~shapiq.vision.architecture.ModelArchitectureStrategy`
+                :class:`~shapiq.vision.architecture.ModelArchitecture`
                 (e.g. :class:`~shapiq.vision.architecture.ClassificationArchitecture` or
                 :class:`~shapiq.vision.architecture.ViTClassificationArchitecture`).
                 This object owns the model, the player strategy, and the masking
@@ -108,7 +108,7 @@ class ImageExplainer(Explainer):
             _imputer: ImageImputer = imputer
         else:
             _imputer: ImageImputer = ImageImputer(
-                model_architecture=model,
+                model=model,
                 image=data,
                 batch_size=batch_size,
                 class_index=class_index,

@@ -94,7 +94,7 @@ class TestImageExplainer:
     def test_explainer_uses_provided_imputer(self, tiny_image, two_player_masks) -> None:
         arch = _build_arch(two_player_masks)
         imputer = ImageImputer(
-            model_architecture=arch,
+            model=arch,
             image=tiny_image,
             normalize=False,
             batch_size=8,

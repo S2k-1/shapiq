@@ -39,7 +39,7 @@ if TYPE_CHECKING:
     )
 
 
-class ModelArchitectureStrategy(ABC):
+class ModelArchitecture(ABC):
     """Encapsulates model-specific inference logic.
 
     Subclasses bind a player strategy and a masking strategy to a concrete
@@ -147,7 +147,7 @@ class ModelArchitectureStrategy(ABC):
         ...
 
 
-class ClassificationArchitecture(ModelArchitectureStrategy):
+class ClassificationArchitecture(ModelArchitecture):
     """Architecture strategy for classification models using pixel-space masking.
 
     Players are defined in pixel space. Absent players are
@@ -289,7 +289,7 @@ class ClassificationArchitecture(ModelArchitectureStrategy):
         return self._model
 
 
-class ViTClassificationArchitecture(ModelArchitectureStrategy):
+class ViTClassificationArchitecture(ModelArchitecture):
     """Architecture strategy for Vision Transformer models using latent-space masking.
 
     Players correspond to groups of patch tokens. Absent players are masked

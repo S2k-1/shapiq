@@ -40,7 +40,7 @@ def _build(image, masks, *, batch_size):
         player_strategy=FixedMasksStrategy(masks),
     )
     imputer = ImageImputer(
-        model_architecture=arch,
+        model=arch,
         image=image,
         batch_size=batch_size,
         normalize=False,
