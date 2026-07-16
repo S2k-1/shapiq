@@ -32,7 +32,8 @@ class MaskingStrategy(ModelCompatible, ABC):
     ``accepted_coalition_domain``. This is used to ensure the masking strategy
     matches the player strategy that produced the coalitions. Compatibility with
     a model protocol is enforced via ``compatible_model_protocol``, default is
-    ``VisionModel``.
+    ``VisionModel``. Some strategies require additional model attributes, which
+    are validated in ``validate_model``.
     """
 
     accepted_coalition_domain: CoalitionDomain
@@ -86,15 +87,12 @@ class PixelBasedMaskingStrategy(MaskingStrategy, ABC):
             means the pixel belongs to an absent player and should be imputed.
         """
         n_players, H, W = player_masks.shape
-        masks_flat = player_masks.view(n_players, -1).float()  # (n_players, H*W)
+        masks_flat = player_masks.view(n_players, -1).float()
 
-        # Align coalitions to the masks' device (the model, and hence the player
-        # masks, may live on the GPU while the sampler emits coalitions on the CPU).
-        absent_players = (~coalitions).to(masks_flat.device).float()  # (n_coalitions, n_players)
+        absent_players = (~coalitions).to(masks_flat.device).float()  
 
-        # Union pixel masks of all absent players per coalition
-        pixel_mask = (absent_players @ masks_flat).bool()  # (n_coalitions, H*W)
-        return pixel_mask.view(-1, H, W)  # (n_coalitions, H, W)
+        pixel_mask = (absent_players @ masks_flat).bool()
+        return pixel_mask.view(-1, H, W)  
 
 
 class MeanColorMasking(PixelBasedMaskingStrategy):
@@ -108,13 +106,13 @@ class MeanColorMasking(PixelBasedMaskingStrategy):
         self, image: torch.Tensor, player_masks: torch.Tensor, coalitions: torch.Tensor
     ) -> torch.Tensor:
         """Apply mean color masking to absent player regions."""
-        pixel_mask = self._build_pixel_mask(player_masks, coalitions)  # (n_coalitions, H, W)
-        mean_color = image.mean(dim=(1, 2))  # (C,)
+        pixel_mask = self._build_pixel_mask(player_masks, coalitions)
+        mean_color = image.mean(dim=(1, 2))  
 
         return torch.where(
-            pixel_mask.unsqueeze(1),  # (n_coalitions, 1, H, W)
-            mean_color[None, :, None, None],  # (1, C, 1, 1)
-            image.unsqueeze(0),  # (1, C, H, W)
+            pixel_mask.unsqueeze(1),  
+            mean_color[None, :, None, None], 
+            image.unsqueeze(0),  
         )
 
 
@@ -133,12 +131,12 @@ class ZeroMasking(PixelBasedMaskingStrategy):
         self, image: torch.Tensor, player_masks: torch.Tensor, coalitions: torch.Tensor
     ) -> torch.Tensor:
         """Apply zero (or constant) masking to absent player regions."""
-        pixel_mask = self._build_pixel_mask(player_masks, coalitions)  # (n_coalitions, H, W)
+        pixel_mask = self._build_pixel_mask(player_masks, coalitions)
 
         return torch.where(
-            pixel_mask.unsqueeze(1),  # (n_coalitions, 1, H, W)
+            pixel_mask.unsqueeze(1),
             torch.tensor(self.value, dtype=image.dtype, device=image.device),
-            image.unsqueeze(0),  # (1, C, H, W)
+            image.unsqueeze(0), 
         )
 
 
@@ -198,14 +196,12 @@ class LatentBasedMaskingStrategy(MaskingStrategy, ABC):
         n_players = token_masks.shape[0]
         n_tokens = int(token_masks.max()) + 1
 
-        # (n_players, n_tokens): one-hot encoding of which tokens belong to which player
         player_to_token = torch.zeros(
             (n_players, n_tokens), dtype=torch.bool, device=coalitions.device
         )
-        player_to_token.scatter_(dim=1, index=token_masks, value=True)  # (n_players, n_tokens)
+        player_to_token.scatter_(dim=1, index=token_masks, value=True)
 
-        # A token is visible (False) if at least one present player owns it
-        visible = coalitions.float() @ player_to_token.float()  # (n_coalitions, n_tokens)
+        visible = coalitions.float() @ player_to_token.float() 
         return ~visible.bool()
 
 
@@ -215,7 +211,7 @@ class BoolMaskedPosStrategy(LatentBasedMaskingStrategy):
     This strategy requires the model to support the ``bool_masked_pos``
     argument (e.g. :class:`~transformers.ViTForMaskedImageModeling`).
 
-    Unlike :class:`MaskTokenStrategy`, it does not initialise the model's
+    Unlike :class:`MaskTokenStrategy`, it does not initialize the model's
     ``mask_token``: the model must already own one, which Hugging Face only
     provides when the model was built with ``use_mask_token=True``.
     """
