@@ -262,19 +262,24 @@ class ClassificationArchitecture(ModelArchitecture):
             A ``(B, n_classes)`` tensor of logits.
 
         Raises:
-            TypeError: If the model cannot be called with the expected
-                classification interface (``pixel_values`` or ``(B, C, H, W)``).
+            TypeError: If preprocessing fails, or if the model rejects the
+                expected classification interface (``pixel_values`` or
+                ``(B, C, H, W)``). Errors raised *inside* a correctly called
+                model (e.g. device or shape mismatches) propagate unchanged.
         """
+        # Preprocessing errors are raised by _preprocess_batch with their own
+        # message and must not be re-labelled as model-interface errors.
+        pixel_values = None if self._processor is None else self._preprocess_batch(batch)
         try:
             if self._processor is None:
                 output = self._model(batch)
             else:
-                pixel_values = self._preprocess_batch(batch)
                 output = self._model(pixel_values=pixel_values)
-        except Exception as err:
+        except (TypeError, ValueError) as err:
             msg = (
-                f"{type(self).__name__} could not call the provided model with the "
-                "expected classification interface."
+                f"{type(self).__name__} could not call {type(self._model).__name__} with the "
+                "expected classification interface. The model raised: "
+                f"{type(err).__name__}: {err}"
             )
             raise TypeError(msg) from err
 
@@ -344,7 +349,7 @@ class ClassificationArchitecture(ModelArchitecture):
             logits = self._forward(masked_batch)
         try:
             return logits[:, self._class_id]
-        except Exception as err:
+        except IndexError as err:
             msg = (
                 f"{type(self).__name__} could not extract the score for class index "
                 f"{self._class_id} from model output with shape {tuple(logits.shape)}."
@@ -498,9 +503,10 @@ class ViTClassificationArchitecture(ModelArchitecture):
             A ``(B, n_classes)`` tensor of logits.
 
         Raises:
-            TypeError: If the model cannot be called with the expected ViT
-                classification interface (``pixel_values`` and optional
-                ``bool_masked_pos``).
+            TypeError: If the model rejects the expected ViT classification
+                interface (``pixel_values`` and optional ``bool_masked_pos``).
+                Errors raised *inside* a correctly called model (e.g. device or
+                shape mismatches) propagate unchanged.
         """
         try:
             if bool_masked_pos is None:
@@ -510,10 +516,11 @@ class ViTClassificationArchitecture(ModelArchitecture):
                     pixel_values=pixel_values,
                     bool_masked_pos=bool_masked_pos,
                 )
-        except Exception as err:
+        except (TypeError, ValueError) as err:
             msg = (
-                f"{type(self).__name__} could not call the provided model with the "
-                "expected interface, which must accept `pixel_values` and `bool_masked_pos` arguments."
+                f"{type(self).__name__} could not call {type(self._model).__name__} with the "
+                "expected interface, which must accept `pixel_values` and `bool_masked_pos` "
+                f"arguments. The model raised: {type(err).__name__}: {err}"
             )
             raise TypeError(msg) from err
 
@@ -568,13 +575,16 @@ class ViTClassificationArchitecture(ModelArchitecture):
             msg = "Call prepare(image, ...) before value_function(...)."
             raise RuntimeError(msg)
         with torch.no_grad():
-            token_mask = self._masking_strategy.apply(coalitions, self._token_masks)
+            token_mask = self._masking_strategy.apply(
+                coalitions.to(self._token_masks.device),
+                self._token_masks,
+            )
             batch = self._pixel_values.repeat(token_mask.shape[0], 1, 1, 1)
             logits = self._forward(batch, bool_masked_pos=token_mask)
             probs = torch.softmax(logits, dim=-1)
             try:
                 return probs[:, self._class_id]
-            except Exception as err:
+            except IndexError as err:
                 msg = (
                     f"{type(self).__name__} could not extract the score for class index "
                     f"{self._class_id} from model output with shape {tuple(probs.shape)}."
