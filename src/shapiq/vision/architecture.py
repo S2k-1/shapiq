@@ -204,7 +204,8 @@ class ClassificationArchitecture(ModelArchitecture):
         type(self).validate_model(model)
         self._model = model
         if processor is not None and not callable(processor):
-            raise TypeError("processor must be callable.")
+            msg = "processor must be callable."
+            raise TypeError(msg)
         self._processor = processor
         self._player_strategy = player_strategy or self.default_player_strategy()
         self._masking_strategy = masking_strategy or self.default_masking_strategy()
@@ -280,7 +281,8 @@ class ClassificationArchitecture(ModelArchitecture):
         return extract_logits(output)
 
     def _preprocess_batch(self, batch: torch.Tensor) -> torch.Tensor:
-        """Convert a masked image batch to model-ready ``pixel_values``
+        """Convert a masked image batch to model-ready ``pixel_values``.
+
         Each image is converted back to a uint8 ``(H, W, C)`` array if
         a processor is provided, otherwise the batch is returned as-is.
 
@@ -331,7 +333,8 @@ class ClassificationArchitecture(ModelArchitecture):
                 that is not present in the model's output.
         """
         if self._class_id is None:
-            raise RuntimeError("Call prepare(image, ...) before value_function(...).")
+            msg = "Call prepare(image, ...) before value_function(...)."
+            raise RuntimeError(msg)
         with torch.no_grad():
             masked_batch = self._masking_strategy.apply(
                 self._image_tensor,
@@ -407,7 +410,8 @@ class ViTClassificationArchitecture(ModelArchitecture):
         type(self).validate_model(model)
         self._model = model
         if vit_processor is not None and not callable(vit_processor):
-            raise TypeError("vit_processor must be callable.")
+            msg = "vit_processor must be callable."
+            raise TypeError(msg)
         self._processor = vit_processor
         self._player_strategy = player_strategy or self.default_player_strategy()
         self._masking_strategy = masking_strategy or self.default_masking_strategy()
@@ -561,7 +565,8 @@ class ViTClassificationArchitecture(ModelArchitecture):
                 that is not present in the model's output.
         """
         if self._class_id is None:
-            raise RuntimeError("Call prepare(image, ...) before value_function(...).")
+            msg = "Call prepare(image, ...) before value_function(...)."
+            raise RuntimeError(msg)
         with torch.no_grad():
             token_mask = self._masking_strategy.apply(coalitions, self._token_masks)
             batch = self._pixel_values.repeat(token_mask.shape[0], 1, 1, 1)

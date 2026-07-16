@@ -31,7 +31,9 @@ class VisionModel(Protocol):
         bool_masked_pos: torch.Tensor | None = None,
     ) -> torch.Tensor | ClassificationOutput: ...
 
-    def __call__(self, *args, **kwargs) -> torch.Tensor | ClassificationOutput: ...
+    def __call__(self, *args, **kwargs) -> torch.Tensor | ClassificationOutput:
+        """Return classification logits from a direct tensor or `pixel_values` call."""
+        ...
 
 
 @runtime_checkable

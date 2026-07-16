@@ -63,8 +63,9 @@ class ModelCompatible:
 
     @classmethod
     def validate_model(cls, model: Model) -> None:
-        """Validate that ``model`` satisfies the declared protocol. Validation
-        with protocols will only check for the presence of attributes and methods,
+        """Validate that ``model`` satisfies the declared protocol.
+
+        Validation with protocols will only check for the presence of attributes and methods,
         not their signatures or return types.
 
         Args:
