@@ -31,19 +31,17 @@ def labels_to_masks(labels: np.ndarray) -> np.ndarray:
     return labels == n_players.reshape(-1, 1, 1)
 
 
-class PlayerStrategy(ModelCompatible, ABC):
+class PlayerStrategy(ABC):
     """Abstract base class for all player strategies.
 
     A player strategy encapsulates the rule by which an image is divided into
     ``n_players`` disjoint regions. Subclasses declare the coalition domain
     they produce via ``coalition_domain``, e.g. ``CoalitionDomain.PIXEL``
     for pixel-space strategies and ``CoalitionDomain.TOKEN`` for token-space
-    strategies. Compatibility with a model protocol is enforced via
-    ``compatible_model_protocol``, default is ``VisionModel``.
+    strategies.
     """
 
     coalition_domain: CoalitionDomain
-    compatible_model_protocol = VisionModel
 
     @property
     @abstractmethod
@@ -59,7 +57,6 @@ class PixelBasedPlayerStrategy(PlayerStrategy, ABC):
     """
 
     coalition_domain: CoalitionDomain = CoalitionDomain.PIXEL
-    compatible_model_protocol = VisionModel
 
     @abstractmethod
     def get_masks(self, image: np.ndarray) -> np.ndarray:
