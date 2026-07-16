@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
+
 from ._error import _vision_protocol_error
 
 if TYPE_CHECKING:
@@ -62,8 +63,8 @@ class ModelCompatible:
 
     @classmethod
     def validate_model(cls, model: Model) -> None:
-        """Validate that ``model`` satisfies the declared protocol. Validation 
-        with protocols will only check for the presence of attributes and methods, 
+        """Validate that ``model`` satisfies the declared protocol. Validation
+        with protocols will only check for the presence of attributes and methods,
         not their signatures or return types.
 
         Args:
@@ -80,5 +81,5 @@ class ModelCompatible:
                 expected = ", ".join(proto.__name__ for proto in protocol)
             else:
                 expected = protocol.__name__
-                
+
             raise _vision_protocol_error(model, expected)

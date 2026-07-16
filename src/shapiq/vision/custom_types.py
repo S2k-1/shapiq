@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, overload, runtime_checkable
 
 if TYPE_CHECKING:
     import torch
@@ -18,11 +18,20 @@ class CoalitionDomain(Enum):
 
 @runtime_checkable
 class VisionModel(Protocol):
-    """Protocol for vision models called directly on image tensors."""
+    """Protocol for vision classification models."""
 
-    def __call__(self, x: torch.Tensor) -> torch.Tensor | ClassificationOutput:
-        """Return raw logits, or an object exposing them as ``.logits``."""
-        ...
+    @overload
+    def __call__(self, x: torch.Tensor, /) -> torch.Tensor | ClassificationOutput: ...
+
+    @overload
+    def __call__(
+        self,
+        *,
+        pixel_values: torch.Tensor,
+        bool_masked_pos: torch.Tensor | None = None,
+    ) -> torch.Tensor | ClassificationOutput: ...
+
+    def __call__(self, *args, **kwargs) -> torch.Tensor | ClassificationOutput: ...
 
 
 @runtime_checkable

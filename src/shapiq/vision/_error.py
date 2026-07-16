@@ -17,6 +17,7 @@ _model_protocol_msg = (
     "attribute."
 )
 
+
 def _vision_protocol_error(obj: object, expected: str | None = None) -> TypeError:
     """Return a TypeError for an incompatible vision model."""
     prefix = f"Expected compatibility with {expected}. " if expected else ""

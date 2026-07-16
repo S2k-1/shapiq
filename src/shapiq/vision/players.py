@@ -13,9 +13,7 @@ from typing import Literal
 
 import numpy as np
 
-from shapiq.vision.validation import ModelCompatible
-
-from .custom_types import CoalitionDomain, VisionModel
+from .custom_types import CoalitionDomain
 
 
 def labels_to_masks(labels: np.ndarray) -> np.ndarray:
