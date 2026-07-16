@@ -26,6 +26,8 @@ except ImportError as err:
 
 if TYPE_CHECKING:
     from shapiq.typing import Model
+    from .custom_types import VisionModel
+    from .validation import ModelCompatible
 
     from .masking import (
         LatentBasedMaskingStrategy,
@@ -39,20 +41,28 @@ if TYPE_CHECKING:
     )
 
 
-class ModelArchitecture(ABC):
+class ModelArchitecture(ModelCompatible, ABC):
     """Encapsulates model-specific inference logic.
 
     Subclasses bind a player strategy and a masking strategy to a concrete
     model type and implement batched coalition evaluation via
     :meth:`value_function`. Input images are converted to tensors after player masks are generated.
+    
+    Attributes:
+        coalition_domain: The coalition domain this architecture natively operates in.
+        compatible_model_protocol: The model protocol this architecture accepts.
+        
+        _player_strategy: The player strategy used to define players and generate masks.
+        _masking_strategy: The masking strategy used to mask absent players.
+        _model: The underlying model evaluated on masked images.
     """
 
-    _model: Model
+    _model: VisionModel
     _player_strategy: PlayerStrategy
     _masking_strategy: MaskingStrategy
 
     coalition_domain: CoalitionDomain
-    """The coalition domain this architecture natively operates in."""
+    compatible_model_protocol = VisionModel
 
     def _validate_configuration(self) -> None:
         """Validate that model, player strategy, and masking strategy are compatible.
@@ -62,6 +72,7 @@ class ModelArchitecture(ABC):
                 coalition domains, or if their (consistent) domain is not the
                 one this architecture operates in.
         """
+        type(self).validate_model(self._model)
         type(self._masking_strategy).validate_model(self._model)
 
         player_domain = self._player_strategy.coalition_domain
@@ -167,7 +178,7 @@ class ClassificationArchitecture(ModelArchitecture):
 
     def __init__(
         self,
-        model: Model,
+        model: VisionModel,
         masking_strategy: PixelBasedMaskingStrategy | None = None,
         player_strategy: PixelBasedPlayerStrategy | None = None,
         processor: Model | None = None,
@@ -306,7 +317,7 @@ class ViTClassificationArchitecture(ModelArchitecture):
 
     def __init__(
         self,
-        model: Model,
+        model: VisionModel,
         vit_processor: Model,
         masking_strategy: LatentBasedMaskingStrategy | None = None,
         player_strategy: LatentBasedPlayerStrategy | None = None,

@@ -252,7 +252,7 @@ class MaskTokenStrategy(LatentBasedMaskingStrategy):
     """Masks tokens by zeroing the mask_token embedding before the forward pass."""
 
     def __init__(self, model: Model) -> None:
-        """Initialise with the ViT model whose mask token will be zeroed.
+        """Initialize with the ViT model whose mask token will be zeroed.
 
         Args:
             model: A ViT model with a ``vit.embeddings.mask_token``
