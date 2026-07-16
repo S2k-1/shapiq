@@ -255,6 +255,9 @@ class ClassificationArchitecture(ModelArchitecture):
         Without a processor the batch goes straight into the model. With a
         processor, each image is preprocessed into ``pixel_values`` before the forward pass.
 
+        Preprocessing happens outside the try block so that a failing processor keeps
+        reporting its own error instead of being reported as a failed model call.
+
         Args:
             batch: A ``(B, C, H, W)`` image batch with pixel values.
 
@@ -262,14 +265,16 @@ class ClassificationArchitecture(ModelArchitecture):
             A ``(B, n_classes)`` tensor of logits.
 
         Raises:
-            TypeError: If the model cannot be called with the expected
-                classification interface (``pixel_values`` or ``(B, C, H, W)``).
+            TypeError: If the processor cannot preprocess the batch, or if the
+                model cannot be called with the expected classification
+                interface (``pixel_values`` or ``(B, C, H, W)``).
         """
+        processor = self._processor
+        pixel_values = batch if processor is None else self._preprocess_batch(batch, processor)
         try:
-            if self._processor is None:
-                output = self._model(batch)
+            if processor is None:
+                output = self._model(pixel_values)
             else:
-                pixel_values = self._preprocess_batch(batch)
                 output = self._model(pixel_values=pixel_values)
         except Exception as err:
             msg = (
@@ -280,14 +285,17 @@ class ClassificationArchitecture(ModelArchitecture):
 
         return extract_logits(output)
 
-    def _preprocess_batch(self, batch: torch.Tensor) -> torch.Tensor:
+    def _preprocess_batch(self, batch: torch.Tensor, processor: Model) -> torch.Tensor:
         """Convert a masked image batch to model-ready ``pixel_values``.
 
-        Each image is converted back to a uint8 ``(H, W, C)`` array if
-        a processor is provided, otherwise the batch is returned as-is.
+        Each masked image is converted back to a uint8 ``(H, W, C)`` array before
+        being handed to the processor, which is the format image processors expect.
 
         Args:
             batch: A ``(B, C, H, W)`` image batch with pixel values
+            processor: The image processor to apply. Taken as an argument rather
+                than read from ``self`` so that callers resolve the optional
+                processor once, before deciding to preprocess at all.
 
         Returns:
             A ``(B, C, H, W)`` tensor of preprocessed pixel values
@@ -297,14 +305,11 @@ class ClassificationArchitecture(ModelArchitecture):
             TypeError: If the processor is not callable or does not return
                 a dict with a ``pixel_values`` key.
         """
-        if self._processor is None:
-            return batch.to(get_torch_device(self._model))
-
         try:
             arrays = (
                 batch.clamp(0.0, 255.0).round().to(torch.uint8).permute(0, 2, 3, 1).cpu().numpy()
             )
-            inputs = self._processor(images=list(arrays), return_tensors="pt")
+            inputs = processor(images=list(arrays), return_tensors="pt")
             return inputs["pixel_values"].to(get_torch_device(self._model))
         except Exception as err:
             msg = (

@@ -84,6 +84,32 @@ class TestLazyImport:
         assert "ImageExplainer" in listed
         assert "PatchStrategy" in listed
 
+    def test_every_exported_name_resolves(self):
+        """``__all__`` and ``_LAZY_MODULES`` must agree, or the export is dead on arrival.
+
+        A name in ``__all__`` without a ``_LAZY_MODULES`` entry raises AttributeError
+        on access, which is exactly how ``GridStrategy`` and ``CustomPlayerStrategy``
+        were unreachable despite being public.
+        """
+        from shapiq import vision
+
+        for name in vision.__all__:
+            assert getattr(vision, name) is not None, name
+
+    def test_lazy_module_map_matches_all(self):
+        from shapiq import vision
+
+        assert set(vision._LAZY_MODULES) == set(vision.__all__)
+
+    def test_exported_names_are_the_real_objects(self):
+        """Lazy resolution must hand back the module's object, not a copy or placeholder."""
+        from shapiq import vision
+        from shapiq.vision.players import CustomPlayerStrategy, GridStrategy, labels_to_masks
+
+        assert vision.GridStrategy is GridStrategy
+        assert vision.CustomPlayerStrategy is CustomPlayerStrategy
+        assert vision.labels_to_masks is labels_to_masks
+
     def test_unknown_attribute_raises(self):
         import shapiq
         from shapiq import vision
