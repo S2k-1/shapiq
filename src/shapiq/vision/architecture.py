@@ -11,11 +11,11 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from .custom_types import CoalitionDomain
+from .custom_types import CoalitionDomain, VisionModel
 from .masking import MaskTokenStrategy, MeanColorMasking
 from .players import PatchStrategy, SuperpixelStrategy
 from .utils import extract_logits, get_torch_device, to_tensor_chw
-from .validation import validate_config_attributes
+from .validation import validate_config_attributes, ModelCompatible
 
 try:
     import torch
@@ -26,8 +26,6 @@ except ImportError as err:
 
 if TYPE_CHECKING:
     from shapiq.typing import Model
-    from .custom_types import VisionModel
-    from .validation import ModelCompatible
 
     from .masking import (
         LatentBasedMaskingStrategy,
@@ -72,7 +70,6 @@ class ModelArchitecture(ModelCompatible, ABC):
                 coalition domains, or if their (consistent) domain is not the
                 one this architecture operates in.
         """
-        type(self).validate_model(self._model)
         type(self._masking_strategy).validate_model(self._model)
 
         player_domain = self._player_strategy.coalition_domain
@@ -199,8 +196,15 @@ class ClassificationArchitecture(ModelArchitecture):
                 masking happens on the original image and every masked image
                 is preprocessed with the processor (resize, normalize) before
                 being forwarded as ``pixel_values``.
+        
+        Raises:
+            TypeError: If the model is not callable or the given strategies 
+                are incompatible with each other or with the model.
         """
+        type(self).validate_model(model)
         self._model = model
+        if processor is not None and not callable(processor):
+            raise TypeError("processor must be callable.")
         self._processor = processor
         self._player_strategy = player_strategy or self.default_player_strategy()
         self._masking_strategy = masking_strategy or self.default_masking_strategy()
@@ -229,8 +233,6 @@ class ClassificationArchitecture(ModelArchitecture):
         """
         device = get_torch_device(self._model)
         if self._processor is not None:
-            # Keep the image in its natural 0-255 range so masked images can
-            # round-trip through the processor as uint8 arrays.
             arr = image.astype(np.float32)
             if image.dtype != np.uint8 and arr.size > 0 and arr.max() <= 1.0:
                 arr = arr * 255.0
@@ -250,16 +252,67 @@ class ClassificationArchitecture(ModelArchitecture):
         """Forward a ``(B, C, H, W)`` image batch and return ``(B, n_classes)`` logits.
 
         Without a processor the batch goes straight into the model. With a
-        processor, each image is converted back to a uint8 ``(H, W, C)`` array
-        and preprocessed before the forward pass.
+        processor, each image is preprocessed into ``pixel_values`` before the forward pass.
+        
+        Args: 
+            batch: A ``(B, C, H, W)`` image batch with pixel values.
+            
+        Returns:
+            A ``(B, n_classes)`` tensor of logits.
+            
+        Raises:
+            TypeError: If the model cannot be called with the expected
+                classification interface (``pixel_values`` or ``(B, C, H, W)``).
         """
-        if self._processor is None:
-            return extract_logits(self._model(batch))
+        try:
+            if self._processor is None:
+                output = self._model(batch)
+            else:
+                pixel_values = self._preprocess_batch(batch)
+                output = self._model(pixel_values=pixel_values)
+        except Exception as err:
+            msg = (
+                f"{type(self).__name__} could not call the provided model with the "
+                "expected classification interface."
+            )
+            raise TypeError(msg) from err
 
-        arrays = batch.clamp(0.0, 255.0).round().to(torch.uint8).permute(0, 2, 3, 1).cpu().numpy()
-        inputs = self._processor(images=list(arrays), return_tensors="pt")
-        pixel_values = inputs["pixel_values"].to(get_torch_device(self._model))
-        return extract_logits(self._model(pixel_values=pixel_values))
+        return extract_logits(output)
+    
+    def _preprocess_batch(self, batch: torch.Tensor) -> torch.Tensor:
+        """Convert a masked image batch to model-ready ``pixel_values`` 
+        (call if a processor was given at construction time).
+        Each image is converted back to a uint8 ``(H, W, C)`` array.
+        
+        Args:
+            batch: A ``(B, C, H, W)`` image batch with pixel values
+            
+        Returns:
+            A ``(B, C, H, W)`` tensor of preprocessed pixel values 
+            transferred to the model's device.
+            
+        Raises:
+            TypeError: If the processor is not callable or does not return
+                a dict with a ``pixel_values`` key.
+        """
+        try:
+            arrays = (
+                batch.clamp(0.0, 255.0)
+                .round()
+                .to(torch.uint8)
+                .permute(0, 2, 3, 1)
+                .cpu()
+                .numpy()
+            )
+            inputs = self._processor(images=list(arrays), return_tensors="pt")
+            return inputs["pixel_values"].to(get_torch_device(self._model))
+        except Exception as err:
+            msg = (
+                f"{type(self).__name__} could not preprocess images with the provided "
+                "processor. Expected a callable processor compatible with "
+                "`processor(images=..., return_tensors='pt')` returning `pixel_values`."
+            )
+            raise TypeError(msg) from err
 
     def value_function(self, coalitions: torch.Tensor) -> torch.Tensor:
         """Evaluate the model for a batch of coalitions.
@@ -273,7 +326,14 @@ class ClassificationArchitecture(ModelArchitecture):
         Returns:
             Float tensor of shape ``(n_coalitions,)`` with the logit for the
             predicted class for each coalition.
+            
+        Raises:
+            RuntimeError: If ``prepare(image, ...)`` has not been called before
+                ``value_function`` or the user has given an invalid class index 
+                that is not present in the model's output.
         """
+        if self._class_id is None:
+            raise RuntimeError("Call prepare(image, ...) before value_function(...).")
         with torch.no_grad():
             masked_batch = self._masking_strategy.apply(
                 self._image_tensor,
@@ -281,7 +341,14 @@ class ClassificationArchitecture(ModelArchitecture):
                 coalitions.to(self._player_masks.device),
             )
             logits = self._forward(masked_batch)
-        return logits[:, self._class_id]
+        try:
+            return logits[:, self._class_id]
+        except Exception as err:
+            msg = (
+                f"{type(self).__name__} could not extract the score for class index "
+                f"{self._class_id} from model output with shape {tuple(logits.shape)}."
+            )
+            raise RuntimeError(msg) from err
 
     @property
     def player_masks(self) -> torch.Tensor:
@@ -333,9 +400,16 @@ class ViTClassificationArchitecture(ModelArchitecture):
             player_strategy: Player definition strategy. Defaults to
                 :class:`~shapiq.vision.players.PatchStrategy` sized to the model's
                 patch grid.
+        
+        Raises:
+            TypeError: If the model is not callable or the given strategies 
+                are incompatible with each other or with the model.
         """
+        type(self).validate_model(model)
         self._model = model
-        self.processor = vit_processor
+        if vit_processor is not None and not callable(vit_processor):
+            raise TypeError("vit_processor must be callable.")
+        self._processor = vit_processor
         self._player_strategy = player_strategy or self.default_player_strategy()
         self._masking_strategy = masking_strategy or self.default_masking_strategy()
         self._validate_configuration()
@@ -357,6 +431,15 @@ class ViTClassificationArchitecture(ModelArchitecture):
             f"The default player strategy of {type(self).__name__}",
             hint="Pass an explicit ``player_strategy`` if your model is not supporting these attributes.",
         )
+        
+        if self._model.config.patch_size <= 0 or self._model.config.image_size <= 0:
+            msg = (
+                f"The default player strategy of {type(self).__name__} requires "
+                "`model.config.image_size` and `model.config.patch_size` to be non-zero. "
+                "Pass an explicit `player_strategy` for this model."
+            )
+            raise TypeError(msg)
+        
         grid_size = self._model.config.image_size // self._model.config.patch_size
         return PatchStrategy(
             grid_size=grid_size, n_players=PatchStrategy.default_n_players(grid_size)
@@ -371,6 +454,67 @@ class ViTClassificationArchitecture(ModelArchitecture):
         """
         return MaskTokenStrategy(self._model)
 
+    def _preprocess_image(self, image: np.ndarray) -> torch.Tensor:
+        """Convert one input image to model-ready ``pixel_values``.
+        
+        Args:
+            image: A single input image as a ``(H, W, C)`` numpy array.
+            
+        Returns:
+            A ``(1, C, H, W)`` tensor of preprocessed pixel values
+            transferred to the model's device.
+            
+        Raises:
+            TypeError: If the processor is not callable or does not return
+                a dict with a ``pixel_values`` key.
+        """
+        try:
+            inputs = self._processor(images=image, return_tensors="pt")
+            return inputs["pixel_values"].to(get_torch_device(self._model))
+        except Exception as err:
+            msg = (
+                f"{type(self).__name__} could not preprocess the input image with the "
+                "provided processor. Expected a callable processor compatible with "
+                "`processor(images=..., return_tensors='pt')` returning `pixel_values`."
+            )
+            raise TypeError(msg) from err
+
+    def _forward(
+        self,
+        pixel_values: torch.Tensor,
+        bool_masked_pos: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        """Forward a ViT batch and return ``(B, n_classes)`` logits.
+        
+        Args:
+            pixel_values: A ``(B, C, H, W)`` tensor of preprocessed pixel values.
+            bool_masked_pos: Optional ``(B, n_tokens)`` boolean tensor indicating
+                which tokens are masked. If None, no masking is applied.
+        
+        Returns:
+            A ``(B, n_classes)`` tensor of logits.
+        
+        Raises:
+            TypeError: If the model cannot be called with the expected ViT
+                classification interface (``pixel_values`` and optional
+                ``bool_masked_pos``)."""
+        try:
+            if bool_masked_pos is None:
+                output = self._model(pixel_values=pixel_values)
+            else:
+                output = self._model(
+                    pixel_values=pixel_values,
+                    bool_masked_pos=bool_masked_pos,
+                )
+        except Exception as err:
+            msg = (
+                f"{type(self).__name__} could not call the provided model with the "
+                "expected interface, which must accept `pixel_values` and `bool_masked_pos` arguments."
+            )
+            raise TypeError(msg) from err
+
+        return extract_logits(output)
+    
     def prepare(self, image: np.ndarray, class_index: int | None = None) -> None:
         """Cache pixel values, token masks, pixel masks, and predicted class index.
 
@@ -384,15 +528,14 @@ class ViTClassificationArchitecture(ModelArchitecture):
             class_index: Index of the class to explain.
         """
         device = get_torch_device(self._model)
-        inputs = self.processor(images=image, return_tensors="pt")
-        self._pixel_values = inputs["pixel_values"].to(device)
+        self._pixel_values = self._preprocess_image(image)
 
-        if not self._class_id and not class_index:
-            with torch.no_grad():
-                logits = self._model(pixel_values=self._pixel_values).logits
-            self._class_id = int(logits.argmax(-1).item())
-        elif class_index is not None:
+        if class_index is not None:
             self._class_id = class_index
+        elif self._class_id is None:
+            with torch.no_grad():
+                logits = self._forward(self._pixel_values)
+            self._class_id = int(logits.argmax(-1).item())
 
         self._player_masks = torch.from_numpy(self._player_strategy.get_pixel_masks(image)).to(
             device
@@ -411,14 +554,27 @@ class ViTClassificationArchitecture(ModelArchitecture):
         Returns:
             Float tensor of shape ``(n_coalitions,)`` with the softmax
             probability for the predicted class for each coalition.
+            
+        Raises:
+            RuntimeError: If ``prepare(image, ...)`` has not been called before
+                ``value_function`` or the user has given an invalid class index 
+                that is not present in the model's output.
         """
+        if self._class_id is None:
+            raise RuntimeError("Call prepare(image, ...) before value_function(...).")
         with torch.no_grad():
             token_mask = self._masking_strategy.apply(coalitions, self._token_masks)
             batch = self._pixel_values.repeat(token_mask.shape[0], 1, 1, 1)
-            logits = self._model(pixel_values=batch, bool_masked_pos=token_mask).logits
+            logits = self._forward(batch, bool_masked_pos=token_mask)
             probs = torch.softmax(logits, dim=-1)
-
-        return probs[:, self._class_id]
+            try:
+                return probs[:, self._class_id]
+            except Exception as err:
+                msg = (
+                    f"{type(self).__name__} could not extract the score for class index "
+                    f"{self._class_id} from model output with shape {tuple(probs.shape)}."
+                )
+                raise RuntimeError(msg) from err
 
     @property
     def player_masks(self) -> torch.Tensor:
