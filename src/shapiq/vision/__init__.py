@@ -15,6 +15,10 @@ _LAZY_MODULES: dict[str, str] = {
     "LatentBasedMaskingStrategy": "masking",
     "MeanColorMasking": "masking",
     "ZeroMasking": "masking",
+    "BlurMasking": "masking",
+    "DatasetMeanMasking": "masking",
+    "MarginalSampling": "masking",
+    "InpaintingMasking": "masking",
     "BoolMaskedPosStrategy": "masking",
     "MaskTokenStrategy": "masking",
     "PlayerStrategy": "players",
@@ -68,8 +72,12 @@ if TYPE_CHECKING:
     from .explainer import ImageExplainer
     from .imputer import ImageImputer
     from .masking import (
+        BlurMasking,
         BoolMaskedPosStrategy,
+        DatasetMeanMasking,
+        InpaintingMasking,
         LatentBasedMaskingStrategy,
+        MarginalSampling,
         MaskTokenStrategy,
         MeanColorMasking,
         PixelBasedMaskingStrategy,
@@ -98,6 +106,10 @@ __all__ = [
     "LatentBasedMaskingStrategy",
     "MeanColorMasking",
     "ZeroMasking",
+    "BlurMasking",
+    "DatasetMeanMasking",
+    "MarginalSampling",
+    "InpaintingMasking",
     "BoolMaskedPosStrategy",
     "MaskTokenStrategy",
     # Players
