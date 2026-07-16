@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
+from ._error import _vision_protocol_error
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -61,7 +62,9 @@ class ModelCompatible:
 
     @classmethod
     def validate_model(cls, model: Model) -> None:
-        """Validate that ``model`` satisfies the declared protocol.
+        """Validate that ``model`` satisfies the declared protocol. Validation 
+        with protocols will only check for the presence of attributes and methods, 
+        not their signatures or return types.
 
         Args:
             model: Object to validate against ``compatible_model_protocol``.
@@ -77,9 +80,5 @@ class ModelCompatible:
                 expected = ", ".join(proto.__name__ for proto in protocol)
             else:
                 expected = protocol.__name__
-
-            msg = (
-                f"{cls.__name__} requires a model compatible with {expected}, "
-                f"got {type(model).__name__}."
-            )
-            raise TypeError(msg)
+                
+            raise _vision_protocol_error(model, expected)
