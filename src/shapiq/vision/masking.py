@@ -213,7 +213,8 @@ class BoolMaskedPosStrategy(LatentBasedMaskingStrategy):
 
     Unlike :class:`MaskTokenStrategy`, it does not initialize the model's
     ``mask_token``: the model must already own one, which Hugging Face only
-    provides when the model was built with ``use_mask_token=True``.
+    provides when the model was built with ``use_mask_token=True``. If not setting the 
+    mask token, the model output will not be meaningful.
     """
 
     @classmethod
@@ -238,7 +239,7 @@ class BoolMaskedPosStrategy(LatentBasedMaskingStrategy):
             msg = (
                 f"{cls.__name__} requires a model built with ``use_mask_token=True`` (e.g. "
                 "``ViTForMaskedImageModeling``), but ``vit.embeddings.mask_token`` is None. "
-                "Use MaskTokenStrategy(model) instead, which initialises the mask token itself."
+                "Use MaskTokenStrategy(model) instead, which initializes the mask token or set the mask_token yourself."
             )
             raise TypeError(msg)
 
@@ -279,7 +280,7 @@ class MaskTokenStrategy(LatentBasedMaskingStrategy):
         except AttributeError:
             msg = f"{cls.__name__} requires a model exposing ``vit.embeddings.mask_token``."
             raise TypeError(msg) from None
-        validate_config_attributes(model, ("hidden_size",), cls.__name__)
+        validate_config_attributes(model, ("hidden_size",), cls.__name__, hint="If your model is not supporting this attribute, consider using BoolMaskedPosStrategy instead and set a mask_token in the model's config yourself.")
 
     def apply(self, coalitions: torch.Tensor, token_masks: torch.Tensor) -> torch.Tensor:
         """Apply masking by setting the model's mask_token embedding to zero."""

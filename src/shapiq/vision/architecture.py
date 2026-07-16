@@ -62,7 +62,6 @@ class ModelArchitecture(ABC):
                 coalition domains, or if their (consistent) domain is not the
                 one this architecture operates in.
         """
-        type(self._player_strategy).validate_model(self._model)
         type(self._masking_strategy).validate_model(self._model)
 
         player_domain = self._player_strategy.coalition_domain
@@ -290,10 +289,14 @@ class ClassificationArchitecture(ModelArchitecture):
 
 
 class ViTClassificationArchitecture(ModelArchitecture):
-    """Architecture strategy for Vision Transformer models using latent-space masking.
+    """Architecture for Vision Transformer models using latent-space masking.
 
     Players correspond to groups of patch tokens. Absent players are masked
     in token space via ``bool_masked_pos`` before the forward pass.
+    
+    Note: ``bool_masked_pos`` is provided by the majority of Hugging Face ViT models, but not all. 
+    If your model does not support it, use :class:`~shapiq.vision.ClassificationArchitecture` instead. 
+    Be aware that masking in the token space, in which ViT models operate, is not possible then.
     """
 
     _masking_strategy: LatentBasedMaskingStrategy
@@ -308,7 +311,7 @@ class ViTClassificationArchitecture(ModelArchitecture):
         masking_strategy: LatentBasedMaskingStrategy | None = None,
         player_strategy: LatentBasedPlayerStrategy | None = None,
     ) -> None:
-        """Initialize the Transformer architecture strategy.
+        """Initialize the vision transformer classifier architecture.
 
         Args:
             model: A vision transformer model.
@@ -341,7 +344,7 @@ class ViTClassificationArchitecture(ModelArchitecture):
             self._model,
             ("image_size", "patch_size"),
             f"The default player strategy of {type(self).__name__}",
-            hint="Pass an explicit ``player_strategy`` for models that do not define them.",
+            hint="Pass an explicit ``player_strategy`` if your model is not supporting these attributes.",
         )
         grid_size = self._model.config.image_size // self._model.config.patch_size
         return PatchStrategy(
@@ -353,7 +356,7 @@ class ViTClassificationArchitecture(ModelArchitecture):
 
         Note:
             ``ViTForImageClassification`` has ``mask_token=None`` by default;
-            :class:`~shapiq.vision.masking.MaskTokenStrategy` initialises it.
+            :class:`~shapiq.vision.masking.MaskTokenStrategy` initializes it.
         """
         return MaskTokenStrategy(self._model)
 
