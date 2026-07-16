@@ -20,6 +20,7 @@ except ImportError as err:
     raise _vision_import_error from err
 
 from .custom_types import CoalitionDomain, VisionModel
+from .utils import get_torch_device
 
 if TYPE_CHECKING:
     from shapiq.typing import Model
@@ -196,6 +197,10 @@ class LatentBasedMaskingStrategy(MaskingStrategy, ABC):
         n_players = token_masks.shape[0]
         n_tokens = int(token_masks.max()) + 1
 
+        # ``coalitions`` come from the approximator (CPU) while ``token_masks``
+        # live on the model's device; align them before the scatter.
+        token_masks = token_masks.to(coalitions.device)
+
         player_to_token = torch.zeros(
             (n_players, n_tokens), dtype=torch.bool, device=coalitions.device
         )
@@ -288,8 +293,16 @@ class MaskTokenStrategy(LatentBasedMaskingStrategy):
         )
 
     def apply(self, coalitions: torch.Tensor, token_masks: torch.Tensor) -> torch.Tensor:
-        """Apply masking by setting the model's mask_token embedding to zero."""
-        self._model.vit.embeddings.mask_token = torch.nn.Parameter(
-            torch.zeros(1, 1, self._model.config.hidden_size)
-        )
+        """Apply masking by setting the model's mask_token embedding to zero.
+
+        The mask token is created on the model's device: a CPU parameter on a
+        CUDA model makes the forward pass fail inside the embedding layer.
+        """
+        embeddings = self._model.vit.embeddings
+        mask_token = embeddings.mask_token
+        device = get_torch_device(self._model)
+        if mask_token is None or mask_token.device != device or mask_token.any():
+            embeddings.mask_token = torch.nn.Parameter(
+                torch.zeros(1, 1, self._model.config.hidden_size, device=device)
+            )
         return self._to_token_mask(coalitions, token_masks)

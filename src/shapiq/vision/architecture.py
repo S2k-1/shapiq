@@ -255,9 +255,6 @@ class ClassificationArchitecture(ModelArchitecture):
         Without a processor the batch goes straight into the model. With a
         processor, each image is preprocessed into ``pixel_values`` before the forward pass.
 
-        Preprocessing happens outside the try block so that a failing processor keeps
-        reporting its own error instead of being reported as a failed model call.
-
         Args:
             batch: A ``(B, C, H, W)`` image batch with pixel values.
 
@@ -265,37 +262,37 @@ class ClassificationArchitecture(ModelArchitecture):
             A ``(B, n_classes)`` tensor of logits.
 
         Raises:
-            TypeError: If the processor cannot preprocess the batch, or if the
-                model cannot be called with the expected classification
-                interface (``pixel_values`` or ``(B, C, H, W)``).
+            TypeError: If preprocessing fails, or if the model rejects the
+                expected classification interface (``pixel_values`` or
+                ``(B, C, H, W)``). Errors raised *inside* a correctly called
+                model (e.g. device or shape mismatches) propagate unchanged.
         """
-        processor = self._processor
-        pixel_values = batch if processor is None else self._preprocess_batch(batch, processor)
+        # Preprocessing errors are raised by _preprocess_batch with their own
+        # message and must not be re-labelled as model-interface errors.
+        pixel_values = None if self._processor is None else self._preprocess_batch(batch)
         try:
-            if processor is None:
-                output = self._model(pixel_values)
+            if self._processor is None:
+                output = self._model(batch)
             else:
                 output = self._model(pixel_values=pixel_values)
-        except Exception as err:
+        except (TypeError, ValueError) as err:
             msg = (
-                f"{type(self).__name__} could not call the provided model with the "
-                "expected classification interface."
+                f"{type(self).__name__} could not call {type(self._model).__name__} with the "
+                "expected classification interface. The model raised: "
+                f"{type(err).__name__}: {err}"
             )
             raise TypeError(msg) from err
 
         return extract_logits(output)
 
-    def _preprocess_batch(self, batch: torch.Tensor, processor: Model) -> torch.Tensor:
+    def _preprocess_batch(self, batch: torch.Tensor) -> torch.Tensor:
         """Convert a masked image batch to model-ready ``pixel_values``.
 
-        Each masked image is converted back to a uint8 ``(H, W, C)`` array before
-        being handed to the processor, which is the format image processors expect.
+        Each image is converted back to a uint8 ``(H, W, C)`` array if
+        a processor is provided, otherwise the batch is returned as-is.
 
         Args:
             batch: A ``(B, C, H, W)`` image batch with pixel values
-            processor: The image processor to apply. Taken as an argument rather
-                than read from ``self`` so that callers resolve the optional
-                processor once, before deciding to preprocess at all.
 
         Returns:
             A ``(B, C, H, W)`` tensor of preprocessed pixel values
@@ -305,11 +302,14 @@ class ClassificationArchitecture(ModelArchitecture):
             TypeError: If the processor is not callable or does not return
                 a dict with a ``pixel_values`` key.
         """
+        if self._processor is None:
+            return batch.to(get_torch_device(self._model))
+
         try:
             arrays = (
                 batch.clamp(0.0, 255.0).round().to(torch.uint8).permute(0, 2, 3, 1).cpu().numpy()
             )
-            inputs = processor(images=list(arrays), return_tensors="pt")
+            inputs = self._processor(images=list(arrays), return_tensors="pt")
             return inputs["pixel_values"].to(get_torch_device(self._model))
         except Exception as err:
             msg = (
@@ -349,7 +349,7 @@ class ClassificationArchitecture(ModelArchitecture):
             logits = self._forward(masked_batch)
         try:
             return logits[:, self._class_id]
-        except Exception as err:
+        except IndexError as err:
             msg = (
                 f"{type(self).__name__} could not extract the score for class index "
                 f"{self._class_id} from model output with shape {tuple(logits.shape)}."
@@ -503,9 +503,10 @@ class ViTClassificationArchitecture(ModelArchitecture):
             A ``(B, n_classes)`` tensor of logits.
 
         Raises:
-            TypeError: If the model cannot be called with the expected ViT
-                classification interface (``pixel_values`` and optional
-                ``bool_masked_pos``).
+            TypeError: If the model rejects the expected ViT classification
+                interface (``pixel_values`` and optional ``bool_masked_pos``).
+                Errors raised *inside* a correctly called model (e.g. device or
+                shape mismatches) propagate unchanged.
         """
         try:
             if bool_masked_pos is None:
@@ -515,10 +516,11 @@ class ViTClassificationArchitecture(ModelArchitecture):
                     pixel_values=pixel_values,
                     bool_masked_pos=bool_masked_pos,
                 )
-        except Exception as err:
+        except (TypeError, ValueError) as err:
             msg = (
-                f"{type(self).__name__} could not call the provided model with the "
-                "expected interface, which must accept `pixel_values` and `bool_masked_pos` arguments."
+                f"{type(self).__name__} could not call {type(self._model).__name__} with the "
+                "expected interface, which must accept `pixel_values` and `bool_masked_pos` "
+                f"arguments. The model raised: {type(err).__name__}: {err}"
             )
             raise TypeError(msg) from err
 
@@ -573,13 +575,16 @@ class ViTClassificationArchitecture(ModelArchitecture):
             msg = "Call prepare(image, ...) before value_function(...)."
             raise RuntimeError(msg)
         with torch.no_grad():
-            token_mask = self._masking_strategy.apply(coalitions, self._token_masks)
+            token_mask = self._masking_strategy.apply(
+                coalitions.to(self._token_masks.device),
+                self._token_masks,
+            )
             batch = self._pixel_values.repeat(token_mask.shape[0], 1, 1, 1)
             logits = self._forward(batch, bool_masked_pos=token_mask)
             probs = torch.softmax(logits, dim=-1)
             try:
                 return probs[:, self._class_id]
-            except Exception as err:
+            except IndexError as err:
                 msg = (
                     f"{type(self).__name__} could not extract the score for class index "
                     f"{self._class_id} from model output with shape {tuple(probs.shape)}."
