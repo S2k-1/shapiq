@@ -114,10 +114,9 @@ class PixelBasedMaskingStrategy(MaskingStrategy, ABC):
         n_players, H, W = player_masks.shape
         masks_flat = player_masks.view(n_players, -1).float()
 
-        absent_players = (~coalitions).to(masks_flat.device).float()
-
-        pixel_mask = (absent_players @ masks_flat).bool()
-        return pixel_mask.view(-1, H, W)
+        absent_players = (~coalitions).to(masks_flat.device).float()  # (n_coalitions, n_players)
+        pixel_mask = (absent_players @ masks_flat).bool()  # (n_coalitions, H*W)
+        return pixel_mask.view(-1, H, W)  # (n_coalitions, H, W)
 
 
 class MeanColorMasking(PixelBasedMaskingStrategy):
