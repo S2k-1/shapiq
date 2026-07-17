@@ -51,7 +51,7 @@ class ImageImputer(Imputer):
                 model forward pass.
             class_index: Optional index of the class to explain. If not provided,
             the class with the highest logit is used.
-        
+
         Raises:
             TypeError: If the model is not a ModelArchitecture instance.
         """
