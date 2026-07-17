@@ -31,15 +31,12 @@ class ImageExplainer(Explainer):
         >>> from shapiq.vision.architecture import ClassificationArchitecture, ViTClassificationArchitecture
         >>> from shapiq.vision.explainer import ImageExplainer
 
-        >>> # --- CNN (ResNet-style) ---
+        >>> # --- CNN  ---
         >>> arch = ClassificationArchitecture(model=my_resnet)
-        >>> explainer = ImageExplainer(model_architecture=arch, data=my_image)
-        >>> iv = explainer.explain_function(x=None, budget=256)
-
         >>> # --- ViT ---
         >>> arch = ViTClassificationArchitecture(model=my_vit, vit_processor=processor)
-        >>> explainer = ImageExplainer(model_architecture=arch, data=my_image,
-                                   index="SII", max_order=2)
+
+        >>> explainer = ImageExplainer(model=arch, data=my_image)
         >>> iv = explainer.explain_function(x=None, budget=512)
 
         .. note::

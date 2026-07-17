@@ -267,8 +267,6 @@ class ClassificationArchitecture(ModelArchitecture):
                 ``(B, C, H, W)``). Errors raised *inside* a correctly called
                 model (e.g. device or shape mismatches) propagate unchanged.
         """
-        # Preprocessing errors are raised by _preprocess_batch with their own
-        # message and must not be re-labelled as model-interface errors.
         processor = self._processor
         pixel_values = batch if processor is None else self._preprocess_batch(batch, processor)
         try:
@@ -291,7 +289,7 @@ class ClassificationArchitecture(ModelArchitecture):
 
         Each image is converted back to a uint8 ``(H, W, C)`` array before being
         handed to the processor, which is the format image processors expect.
-        Only called when a processor is configured, so there is no pass-through case.
+        Only called when a processor is configured.
 
         Args:
             batch: A ``(B, C, H, W)`` image batch with pixel values

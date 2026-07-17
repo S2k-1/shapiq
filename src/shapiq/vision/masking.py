@@ -313,8 +313,7 @@ class MarginalSampling(PixelBasedMaskingStrategy):
     """Imputes absent player regions with pixels from a bank of reference images.
 
     For every coalition one reference image is drawn pseudo-randomly and its
-    pixels are copied into the absent region. This is the *marginal* feature
-    removal function of :footcite:t:`Covert.2021b`: absent pixels come from the
+    pixels are copied into the absent region. Absent pixels come from the
     data distribution rather than from a fixed baseline, so masked images stay
     closer to the natural image manifold than with :class:`MeanColorMasking` or
     :class:`ZeroMasking`.
@@ -341,8 +340,6 @@ class MarginalSampling(PixelBasedMaskingStrategy):
         >>> references = [np.array(Image.open(path)) for path in reference_paths]
         >>> masking = MarginalSampling(reference_images=references, random_state=0)
 
-    References:
-        .. footbibliography::
     """
 
     def __init__(
@@ -395,8 +392,6 @@ class MarginalSampling(PixelBasedMaskingStrategy):
         weights = weights * 2654435761 + self.random_state  # Knuth's multiplicative constant
         keys = (coalitions.to(torch.int64) * weights).sum(dim=1) + self.random_state
 
-        # Final integer mix so neighbouring keys scatter instead of landing in
-        # adjacent buckets.
         keys = (keys ^ (keys >> 15)) * 2246822519
         keys = (keys ^ (keys >> 13)) * 3266489917
         keys = keys ^ (keys >> 16)
@@ -440,8 +435,7 @@ class InpaintingMasking(PixelBasedMaskingStrategy):
             # returns: (C, H, W) float tensor
             ...
 
-    This is the *conditional* feature removal function of
-    :footcite:t:`Covert.2021b`: absent pixels are reconstructed from their visible
+    Absent pixels are reconstructed from their visible
     surroundings, which is the principled target for image explanations. Keeping
     the inpainter a callable leaves the heavy dependency (``diffusers``, ``cv2``,
     ``skimage``) with the caller. Cost is one inpainter call per coalition, so
@@ -459,8 +453,6 @@ class InpaintingMasking(PixelBasedMaskingStrategy):
         ...     return torch.from_numpy(filled).permute(2, 0, 1).to(image)
         >>> masking = InpaintingMasking(inpainter=inpainter)
 
-    References:
-        .. footbibliography::
     """
 
     def __init__(self, inpainter: Callable[[torch.Tensor, torch.Tensor], torch.Tensor]) -> None:
@@ -566,8 +558,6 @@ class LatentBasedMaskingStrategy(MaskingStrategy, ABC):
         n_players = token_masks.shape[0]
         n_tokens = int(token_masks.max()) + 1
 
-        # ``coalitions`` come from the approximator (CPU) while ``token_masks``
-        # live on the model's device; align them before the scatter.
         token_masks = token_masks.to(coalitions.device)
 
         player_to_token = torch.zeros(
