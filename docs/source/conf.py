@@ -58,6 +58,9 @@ sphinx_gallery_conf = {
     "reference_url": {"shapiq": None},
     "filename_pattern": r"plot_.*\.py",
     "ignore_pattern": r"util_.*\.py",
+    # Order examples by filename so galleries can encode a reading order via
+    # numeric prefixes (e.g. plot_01_..., plot_02_... in examples/vision).
+    "within_subsection_order": "FileNameSortKey",
     "plot_gallery": True,
     "download_all_examples": False,
     "show_signature": False,
@@ -93,6 +96,7 @@ intersphinx_mapping = {
     "numpy": ("https://numpy.org/doc/stable/", None),
     "scipy": ("https://docs.scipy.org/doc/scipy", None),
     "matplotlib": ("https://matplotlib.org/stable", None),
+    "torch": ("https://docs.pytorch.org/docs/stable/", None),
     "PIL": ("https://pillow.readthedocs.io/en/stable/", None),
     "sklearn": ("https://scikit-learn.org/stable", None),
 }
