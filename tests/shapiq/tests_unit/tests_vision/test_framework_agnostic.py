@@ -1,15 +1,19 @@
 """Tests for optional-dependency error handling in the vision package.
 
 When ``torch`` or ``scikit-image`` is not installed the vision modules raise an
-:exc:`ImportError` with a helpful install hint.  These tests simulate missing
-packages by removing them from ``sys.modules``.
+:exc:`ImportError` with a helpful install hint. These tests simulate a missing
+package and check that the friendly error is surfaced.
 
-Every test that does so runs in a **subprocess**: hiding ``torch`` and reloading
-the vision modules mutates the interpreter's module graph (reloading a module
-rebinds its classes to new objects, desynchronising the ``from x import Y``
-references other modules hold), which silently breaks unrelated tests that run
-afterwards. Isolating the mutation in a fresh interpreter keeps this test file
-from poisoning the rest of the suite.
+Each such test runs in a **subprocess** for two reasons. First, faking a missing
+dependency in-process would mutate the interpreter's module graph (reloading a
+module rebinds its classes to new objects, desynchronising the ``from x import
+Y`` references other modules hold) and silently break unrelated tests that run
+afterwards. Second, the missing package is simulated with a ``meta_path`` finder
+that raises :exc:`ModuleNotFoundError`, *not* by assigning ``sys.modules[name] =
+None`` -- the latter leaves a ``None`` sentinel that third-party code probing
+``sys.modules`` (e.g. scipy's array-API torch detection) dereferences into an
+``AttributeError``. Blocking the import cleanly reproduces "not installed"
+without that landmine.
 """
 
 from __future__ import annotations
@@ -23,14 +27,33 @@ import pytest
 _INSTALL_HINT = "pip install shapiq[vision]"
 
 
-def _run_isolated(body: str) -> None:
-    """Run ``body`` in a fresh interpreter; fail the test if it exits non-zero.
+def _run_isolated(body: str, *, without: tuple[str, ...]) -> None:
+    """Run ``body`` in a fresh interpreter with ``without`` packages unimportable.
 
-    The snippet must ``sys.exit(0)`` on success and ``sys.exit(<message>)`` on
-    failure, so an unmet expectation surfaces as an assertion with that message.
+    A ``meta_path`` finder raises ModuleNotFoundError for the blocked top-level
+    packages, so ``import x`` behaves as if they were not installed while leaving
+    ``sys.modules`` untouched. The snippet must ``sys.exit(0)`` on success and
+    ``sys.exit(<message>)`` on failure, so an unmet expectation surfaces as an
+    assertion carrying that message.
     """
+    blocker = textwrap.dedent(
+        """
+        import sys
+        import importlib.abc
+
+
+        class _Blocker(importlib.abc.MetaPathFinder):
+            def find_spec(self, name, path=None, target=None):
+                if name.split(".", 1)[0] in __BLOCKED__:
+                    raise ModuleNotFoundError("No module named " + repr(name), name=name)
+                return None
+
+
+        sys.meta_path.insert(0, _Blocker())
+        """
+    ).replace("__BLOCKED__", repr(without))
     result = subprocess.run(
-        [sys.executable, "-c", textwrap.dedent(body)],
+        [sys.executable, "-c", blocker + textwrap.dedent(body)],
         capture_output=True,
         text=True,
         check=False,
@@ -52,8 +75,6 @@ class TestImportError:
         """Modules that require torch raise ImportError with install hint."""
         _run_isolated(
             f"""
-            import sys
-            sys.modules["torch"] = None  # make `import torch` raise ImportError
             import importlib
             try:
                 importlib.import_module("{module_name}")
@@ -61,16 +82,14 @@ class TestImportError:
                 assert {_INSTALL_HINT!r} in str(err), str(err)
                 sys.exit(0)
             sys.exit("no ImportError raised for {module_name}")
-            """
+            """,
+            without=("torch",),
         )
 
     def test_superpixel_get_masks_raises(self):
         """SuperpixelStrategy raises ImportError with install hint when skimage is absent."""
         _run_isolated(
             f"""
-            import sys
-            sys.modules["skimage"] = None
-            sys.modules["skimage.segmentation"] = None
             import numpy as np
             from shapiq.vision.players import SuperpixelStrategy
 
@@ -81,7 +100,8 @@ class TestImportError:
                 assert {_INSTALL_HINT!r} in str(err), str(err)
                 sys.exit(0)
             sys.exit("SuperpixelStrategy.get_masks did not raise ImportError")
-            """
+            """,
+            without=("skimage",),
         )
 
 
@@ -154,8 +174,6 @@ class TestLazyImport:
         """With torch absent, ``ImageExplainer`` resolves to a placeholder that raises."""
         _run_isolated(
             f"""
-            import sys
-            sys.modules["torch"] = None  # make `import torch` raise ImportError
             from shapiq import vision
 
             placeholder = vision.__getattr__("ImageExplainer")
@@ -172,5 +190,6 @@ class TestLazyImport:
                 assert {_INSTALL_HINT!r} in str(err), str(err)
                 sys.exit(0)
             sys.exit("ClassificationArchitecture did not raise")
-            """
+            """,
+            without=("torch",),
         )
