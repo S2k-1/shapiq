@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 import numpy as np
 
 from shapiq.imputer.base import Imputer
 
+from .architecture import ModelArchitecture
 from .utils import ImageLike, as_hwc_array, tensor_to_numpy
 
 try:
@@ -16,9 +15,6 @@ except ImportError as err:
     from ._error import _vision_import_error
 
     raise _vision_import_error from err
-
-if TYPE_CHECKING:
-    from .architecture import ModelArchitecture
 
 
 class ImageImputer(Imputer):
@@ -55,7 +51,13 @@ class ImageImputer(Imputer):
                 model forward pass.
             class_index: Optional index of the class to explain. If not provided,
             the class with the highest logit is used.
+        
+        Raises:
+            TypeError: If the model is not a ModelArchitecture instance.
         """
+        if not isinstance(model, ModelArchitecture):
+            msg = "ImageImputer expects a ModelArchitecture instance for the model."
+            raise TypeError(msg)
         self.architecture = model
         self._batch_size = batch_size
         self._normalize = normalize
