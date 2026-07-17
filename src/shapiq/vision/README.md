@@ -57,15 +57,42 @@ explainer = ImageExplainer(model=architecture, data=image)
 
 Players are patch groups derived from the model's token grid, and absent players are hidden with the model's `mask_token`.
 This needs a model that accepts `bool_masked_pos`, which only some Hugging Face ViTs do.
-Plenty of ViT-family models are missing `bool_masked_pos`, `hidden_size` or `patch_size` altogether, and some of the rest return outputs we cannot read a class score off, so the token path is narrower than the name "ViT" suggests.
+Plenty of ViT-family models are missing `bool_masked_pos`, `hidden_size` or `patch_size` altogether, and some of the rest return outputs we cannot read a class score of, so the token path is narrower than the name "ViT" suggests.
 
 `ViTClassificationArchitecture` currently only supports models that expose `bool_masked_pos`, `hidden_size` and `patch_size` in their Hugging Face config, because the masking and player strategies are built directly on top of these.
 Models that miss any of them (no `vit.embeddings.mask_token`, or no ViT-style `image_size`/`patch_size` config) have to go through `ClassificationArchitecture` instead.
 See the compatibility table below for what that means in practice.
 
-## Model compatibility
 
-Tested on branch `feature/pr_final`:
+## Things worth knowing
+
+**Players and masking have to agree on a domain.**
+Pixel-space players (`SuperpixelStrategy`, `GridStrategy`, `CustomPlayerStrategy`) go with pixel-space masking (`MeanColorMasking`, `ZeroMasking`), and token-space players (`PatchStrategy`) go with token-space masking (`MaskTokenStrategy`, `BoolMaskedPosStrategy`).
+Mixing them raises a `TypeError` when you build the architecture rather than producing quiet nonsense later.
+
+**Models without `bool_masked_pos` still work.**
+Swin, BEiT, and friends can go through `ClassificationArchitecture` with their processor attached, which masks pixels before preprocessing:
+
+```python
+ClassificationArchitecture(model=model, processor=processor)
+```
+
+You lose token-space masking that way, but you keep the explanation.
+
+**The two architectures return different scales.**
+`ClassificationArchitecture` reports the raw logit of the explained class, `ViTClassificationArchitecture` reports the softmax probability.
+Don't compare the numbers across the two without keeping that in mind.
+
+**SLIC does not always return the number of segments you asked for.**
+`n_players` reflects what you actually got, so read it off the imputer rather than assuming.
+
+## Examples
+
+Runnable versions of all of this live in `examples/vision`, including custom player layouts and the interaction network plots.
+
+
+## Model compatibility
+We report the models we have tested with the two architectures below:
 
 | Model | Type | Pixel path (`ClassificationArchitecture`) | Token path (`ViTClassificationArchitecture`) |
 |---|---|---|---|
@@ -112,29 +139,3 @@ Tested on branch `feature/pr_final`:
 | `openai/clip-vit-base-patch32` | HF encoder-only | ✗ needs text input | ✗ no ViT config (image_size/patch_size) |
 | `nvidia/segformer-b0-finetuned-ade-512-512` | HF dense-prediction | ✗ dense-prediction output | ✗ no ViT config (image_size/patch_size) |
 | `facebook/detr-resnet-50` | HF dense-prediction | ✗ dense-prediction output | ✗ no ViT config (image_size/patch_size) |
-
-## Things worth knowing
-
-**Players and masking have to agree on a domain.**
-Pixel-space players (`SuperpixelStrategy`, `GridStrategy`, `CustomPlayerStrategy`) go with pixel-space masking (`MeanColorMasking`, `ZeroMasking`), and token-space players (`PatchStrategy`) go with token-space masking (`MaskTokenStrategy`, `BoolMaskedPosStrategy`).
-Mixing them raises a `TypeError` when you build the architecture rather than producing quiet nonsense later.
-
-**Models without `bool_masked_pos` still work.**
-Swin, BEiT, and friends can go through `ClassificationArchitecture` with their processor attached, which masks pixels before preprocessing:
-
-```python
-ClassificationArchitecture(model=model, processor=processor)
-```
-
-You lose token-space masking that way, but you keep the explanation.
-
-**The two architectures return different scales.**
-`ClassificationArchitecture` reports the raw logit of the explained class, `ViTClassificationArchitecture` reports the softmax probability.
-Don't compare the numbers across the two without keeping that in mind.
-
-**SLIC does not always return the number of segments you asked for.**
-`n_players` reflects what you actually got, so read it off the imputer rather than assuming.
-
-## Examples
-
-Runnable versions of all of this live in `examples/vision`, including custom player layouts and the interaction network plots.
