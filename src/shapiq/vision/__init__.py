@@ -26,6 +26,9 @@ _LAZY_MODULES: dict[str, str] = {
     "LatentBasedPlayerStrategy": "players",
     "SuperpixelStrategy": "players",
     "PatchStrategy": "players",
+    "GridStrategy": "players",
+    "CustomPlayerStrategy": "players",
+    "labels_to_masks": "players",
 }
 
 
@@ -84,11 +87,14 @@ if TYPE_CHECKING:
         ZeroMasking,
     )
     from .players import (
+        CustomPlayerStrategy,
+        GridStrategy,
         LatentBasedPlayerStrategy,
         PatchStrategy,
         PixelBasedPlayerStrategy,
         PlayerStrategy,
         SuperpixelStrategy,
+        labels_to_masks,
     )
 
 
@@ -118,4 +124,7 @@ __all__ = [
     "LatentBasedPlayerStrategy",
     "SuperpixelStrategy",
     "PatchStrategy",
+    "GridStrategy",
+    "CustomPlayerStrategy",
+    "labels_to_masks",
 ]

@@ -269,10 +269,11 @@ class ClassificationArchitecture(ModelArchitecture):
         """
         # Preprocessing errors are raised by _preprocess_batch with their own
         # message and must not be re-labelled as model-interface errors.
-        pixel_values = None if self._processor is None else self._preprocess_batch(batch)
+        processor = self._processor
+        pixel_values = batch if processor is None else self._preprocess_batch(batch, processor)
         try:
-            if self._processor is None:
-                output = self._model(batch)
+            if processor is None:
+                output = self._model(pixel_values)
             else:
                 output = self._model(pixel_values=pixel_values)
         except (TypeError, ValueError) as err:
@@ -285,14 +286,18 @@ class ClassificationArchitecture(ModelArchitecture):
 
         return extract_logits(output)
 
-    def _preprocess_batch(self, batch: torch.Tensor) -> torch.Tensor:
+    def _preprocess_batch(self, batch: torch.Tensor, processor: Model) -> torch.Tensor:
         """Convert a masked image batch to model-ready ``pixel_values``.
 
-        Each image is converted back to a uint8 ``(H, W, C)`` array if
-        a processor is provided, otherwise the batch is returned as-is.
+        Each image is converted back to a uint8 ``(H, W, C)`` array before being
+        handed to the processor, which is the format image processors expect.
+        Only called when a processor is configured, so there is no pass-through case.
 
         Args:
             batch: A ``(B, C, H, W)`` image batch with pixel values
+            processor: The image processor to apply. Taken as an argument rather
+                than read from ``self`` so the caller resolves the optional
+                processor once, before deciding to preprocess at all.
 
         Returns:
             A ``(B, C, H, W)`` tensor of preprocessed pixel values
@@ -302,14 +307,11 @@ class ClassificationArchitecture(ModelArchitecture):
             TypeError: If the processor is not callable or does not return
                 a dict with a ``pixel_values`` key.
         """
-        if self._processor is None:
-            return batch.to(get_torch_device(self._model))
-
         try:
             arrays = (
                 batch.clamp(0.0, 255.0).round().to(torch.uint8).permute(0, 2, 3, 1).cpu().numpy()
             )
-            inputs = self._processor(images=list(arrays), return_tensors="pt")
+            inputs = processor(images=list(arrays), return_tensors="pt")
             return inputs["pixel_values"].to(get_torch_device(self._model))
         except Exception as err:
             msg = (

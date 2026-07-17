@@ -180,6 +180,15 @@ class TestImageExplainer:
         result_b = explainer.explain_function(tiny_image, budget=16, random_state=42)
         np.testing.assert_allclose(result_a.values, result_b.values)
 
+    def test_imputer_property_exposes_the_game(self, tiny_image, two_player_masks) -> None:
+        explainer = ImageExplainer(
+            model=_build_arch(two_player_masks),
+            data=tiny_image,
+            random_state=0,
+        )
+        assert explainer.imputer is explainer._imputer
+        np.testing.assert_array_equal(explainer.imputer.image, tiny_image)
+
     def test_custom_approximator_is_used(self, tiny_image, two_player_masks) -> None:
         explainer = ImageExplainer(
             model=_build_arch(two_player_masks),

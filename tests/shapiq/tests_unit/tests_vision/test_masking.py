@@ -13,11 +13,13 @@ boolean mask where ``True`` marks an absent (masked) token.
 
 from __future__ import annotations
 
+import re
 from types import SimpleNamespace
 
 import pytest
 import torch
 
+from shapiq.vision.custom_types import CoalitionDomain
 from shapiq.vision.masking import (
     BlurMasking,
     BoolMaskedPosStrategy,
@@ -30,6 +32,8 @@ from shapiq.vision.masking import (
     PixelBasedMaskingStrategy,
     ZeroMasking,
 )
+
+from .conftest import MockViT, make_vit_config
 
 
 @pytest.fixture
@@ -363,30 +367,12 @@ class TestBoolMaskedPosStrategy:
         assert out[0, 1:].all()
 
 
-class _MockViTWithMaskToken:
-    """Minimal ViT mock satisfying :class:`MaskTokenStrategy`'s requirements.
-
-    ``MaskTokenStrategy`` reads ``model.config.hidden_size`` to create the zero
-    tensor and overwrites ``model.vit.embeddings.mask_token``.
-    """
-
-    class _Config:
-        hidden_size = 4
-
-    config = _Config()
-
-    def __init__(self) -> None:
-        self.vit = SimpleNamespace(
-            embeddings=SimpleNamespace(mask_token=torch.nn.Parameter(torch.ones(1, 1, 4)))
-        )
-
-
 class TestMaskTokenStrategy:
     def test_is_transformer_masking_strategy(self) -> None:
-        assert isinstance(MaskTokenStrategy(_MockViTWithMaskToken()), LatentBasedMaskingStrategy)
+        assert isinstance(MaskTokenStrategy(MockViT()), LatentBasedMaskingStrategy)
 
     def test_apply_returns_token_mask(self, token_masks) -> None:
-        strategy = MaskTokenStrategy(_MockViTWithMaskToken())
+        strategy = MaskTokenStrategy(MockViT())
         coalitions = torch.tensor([[True, False, False, False]])
         out = strategy.apply(coalitions, token_masks)
         assert out.shape == (1, 4)
@@ -394,10 +380,85 @@ class TestMaskTokenStrategy:
         assert out[0, 1:].all()
 
     def test_apply_zeros_mask_token(self, token_masks) -> None:
-        model = _MockViTWithMaskToken()
+        model = MockViT()
         strategy = MaskTokenStrategy(model)
         # Starts non-zero.
         assert not torch.allclose(model.vit.embeddings.mask_token.data, torch.zeros(1, 1, 4))
         coalitions = torch.tensor([[True, True, True, True]])
         strategy.apply(coalitions, token_masks)
         assert torch.allclose(model.vit.embeddings.mask_token.data, torch.zeros(1, 1, 4))
+
+    def test_mask_token_sized_from_config_hidden_size(self, token_masks) -> None:
+        """The replacement mask token is shaped from ``config.hidden_size``, not the old token."""
+        model = MockViT(hidden_size=16)
+        MaskTokenStrategy(model).apply(torch.tensor([[True, True, True, True]]), token_masks)
+        assert model.vit.embeddings.mask_token.shape == (1, 1, 16)
+
+
+class TestMaskingStrategyModelValidation:
+    """``validate_model`` guards the model attributes each token masker depends on."""
+
+    def test_mask_token_strategy_rejects_non_callable_model(self) -> None:
+        model = SimpleNamespace(config=make_vit_config(), vit=SimpleNamespace(embeddings=None))
+        with pytest.raises(TypeError, match="VisionModel"):
+            MaskTokenStrategy(model)
+
+    def test_mask_token_strategy_rejects_model_without_mask_token(self) -> None:
+        model = MockViT()
+        del model.vit
+        with pytest.raises(TypeError, match=re.escape("vit.embeddings.mask_token")):
+            MaskTokenStrategy(model)
+
+    def test_mask_token_strategy_rejects_model_without_hidden_size(self) -> None:
+        model = MockViT()
+        model.config.hidden_size = None
+        with pytest.raises(TypeError, match="hidden_size"):
+            MaskTokenStrategy(model)
+
+    def test_mask_token_strategy_error_points_to_bool_masked_pos_strategy(self) -> None:
+        """The hidden_size error names the fallback so users know what to switch to."""
+        model = MockViT()
+        model.config.hidden_size = None
+        with pytest.raises(TypeError, match="BoolMaskedPosStrategy"):
+            MaskTokenStrategy(model)
+
+    def test_bool_masked_pos_accepts_model_with_mask_token(self) -> None:
+        BoolMaskedPosStrategy.validate_model(MockViT())  # does not raise
+
+    def test_bool_masked_pos_rejects_model_without_mask_token(self) -> None:
+        model = MockViT()
+        del model.vit
+        with pytest.raises(TypeError, match=re.escape("vit.embeddings.mask_token")):
+            BoolMaskedPosStrategy.validate_model(model)
+
+    def test_bool_masked_pos_rejects_unset_mask_token(self) -> None:
+        """``use_mask_token=False`` models leave ``mask_token`` as None and must be rejected."""
+        model = MockViT()
+        model.vit.embeddings.mask_token = None
+        with pytest.raises(TypeError, match="use_mask_token=True"):
+            BoolMaskedPosStrategy.validate_model(model)
+
+    def test_bool_masked_pos_unset_mask_token_error_suggests_mask_token_strategy(self) -> None:
+        model = MockViT()
+        model.vit.embeddings.mask_token = None
+        with pytest.raises(TypeError, match="MaskTokenStrategy"):
+            BoolMaskedPosStrategy.validate_model(model)
+
+    def test_bool_masked_pos_rejects_non_callable_model(self) -> None:
+        model = SimpleNamespace(
+            vit=SimpleNamespace(embeddings=SimpleNamespace(mask_token=torch.zeros(1, 1, 4)))
+        )
+        with pytest.raises(TypeError, match="VisionModel"):
+            BoolMaskedPosStrategy.validate_model(model)
+
+
+class TestCoalitionDomains:
+    """Each masker declares the coalition domain it accepts, which the architecture cross-checks."""
+
+    @pytest.mark.parametrize("strategy", [MeanColorMasking(), ZeroMasking()])
+    def test_pixel_maskers_accept_pixel_domain(self, strategy) -> None:
+        assert strategy.accepted_coalition_domain is CoalitionDomain.PIXEL
+
+    def test_token_maskers_accept_token_domain(self) -> None:
+        assert BoolMaskedPosStrategy().accepted_coalition_domain is CoalitionDomain.TOKEN
+        assert MaskTokenStrategy(MockViT()).accepted_coalition_domain is CoalitionDomain.TOKEN
