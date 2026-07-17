@@ -8,9 +8,9 @@
 
 ### Introducing shapiq.vision [#549](https://github.com/mmschlk/shapiq/pull/549)
 
-Adds the `shapiq.vision` subpackage for explaining **image classification models** with Shapley values and interactions. Its `shapiq.vision.ImageExplainer` and `shapiq.vision.ImageImputer` work with provided model callables like CNNs and vision transformers, and any supported approximator from `shapiq.approximator`, including first-order and higher-order interaction indices.
+Adds the `shapiq.vision` subpackage for explaining **image classification models** with Shapley values and interactions. Its `shapiq.vision.ImageExplainer` and `shapiq.vision.ImageImputer` work with provided model callables like CNNs and vision transformers, and any supported approximator from `shapiq.approximator`, covering first-order and higher-order interaction indices.
 Players and masking can be configured manually or left to sensible defaults chosen per model type. Image players support fixed grids of patches, superpixel segmentation via SLIC, and custom player masks through `shapiq.vision.players`. Absent players in a coalition can be imputed using e.g. mean-color or blur-based pixel masking, or attention-based masking for vision transformers, provided by `shapiq.vision.masking`.
-Coalitions are evaluated efficiently in batches, and the resulting `shapiq.InteractionValues` can be visualized with `shapiq.vision.plot_image_interactions()`.
+Coalitions are evaluated efficiently in batches, and the resulting `shapiq.InteractionValues` can be visualized with `shapiq.vision.plot_image_attributions()`.
  
 shapiq.vision requires the new optional `vision` dependecy group (`pip install shapiq[vision]` - `torch`, `scikit-image`).
 
