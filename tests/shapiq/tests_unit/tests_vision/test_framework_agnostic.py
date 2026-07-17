@@ -2,22 +2,40 @@
 
 When ``torch`` or ``scikit-image`` is not installed the vision modules raise an
 :exc:`ImportError` with a helpful install hint.  These tests simulate missing
-packages by patching ``sys.modules`` and reloading the affected modules, then
-verify that the correct error is surfaced.
+packages by removing them from ``sys.modules``.
+
+Every test that does so runs in a **subprocess**: hiding ``torch`` and reloading
+the vision modules mutates the interpreter's module graph (reloading a module
+rebinds its classes to new objects, desynchronising the ``from x import Y``
+references other modules hold), which silently breaks unrelated tests that run
+afterwards. Isolating the mutation in a fresh interpreter keeps this test file
+from poisoning the rest of the suite.
 """
 
 from __future__ import annotations
 
-import importlib
-import re
 import subprocess
 import sys
-from unittest.mock import patch
+import textwrap
 
-import numpy as np
 import pytest
 
-_INSTALL_HINT = re.escape("pip install shapiq[vision]")
+_INSTALL_HINT = "pip install shapiq[vision]"
+
+
+def _run_isolated(body: str) -> None:
+    """Run ``body`` in a fresh interpreter; fail the test if it exits non-zero.
+
+    The snippet must ``sys.exit(0)`` on success and ``sys.exit(<message>)`` on
+    failure, so an unmet expectation surfaces as an assertion with that message.
+    """
+    result = subprocess.run(
+        [sys.executable, "-c", textwrap.dedent(body)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 class TestImportError:
@@ -32,26 +50,39 @@ class TestImportError:
     )
     def test_raises_import_error_when_torch_missing(self, module_name):
         """Modules that require torch raise ImportError with install hint."""
-        original = sys.modules.get(module_name)
-        with (
-            patch.dict(sys.modules, {"torch": None}),
-            pytest.raises(ImportError, match=_INSTALL_HINT),
-        ):
-            importlib.reload(importlib.import_module(module_name))
-        if original is not None:
-            sys.modules[module_name] = original
-        importlib.reload(importlib.import_module(module_name))
+        _run_isolated(
+            f"""
+            import sys
+            sys.modules["torch"] = None  # make `import torch` raise ImportError
+            import importlib
+            try:
+                importlib.import_module("{module_name}")
+            except ImportError as err:
+                assert {_INSTALL_HINT!r} in str(err), str(err)
+                sys.exit(0)
+            sys.exit("no ImportError raised for {module_name}")
+            """
+        )
 
     def test_superpixel_get_masks_raises(self):
         """SuperpixelStrategy raises ImportError with install hint when skimage is absent."""
-        dummy = np.zeros((16, 16, 3), dtype=np.uint8)
-        with patch.dict(sys.modules, {"skimage": None, "skimage.segmentation": None}):
-            import shapiq.vision.players as players_mod
+        _run_isolated(
+            f"""
+            import sys
+            sys.modules["skimage"] = None
+            sys.modules["skimage.segmentation"] = None
+            import numpy as np
+            from shapiq.vision.players import SuperpixelStrategy
 
-            importlib.reload(players_mod)
-            strategy = players_mod.SuperpixelStrategy(n_segments=4)
-            with pytest.raises(ImportError, match=_INSTALL_HINT):
-                strategy.get_masks(dummy)
+            strategy = SuperpixelStrategy(n_segments=4)
+            try:
+                strategy.get_masks(np.zeros((16, 16, 3), dtype=np.uint8))
+            except ImportError as err:
+                assert {_INSTALL_HINT!r} in str(err), str(err)
+                sys.exit(0)
+            sys.exit("SuperpixelStrategy.get_masks did not raise ImportError")
+            """
+        )
 
 
 class TestLazyImport:
@@ -121,26 +152,25 @@ class TestLazyImport:
 
     def test_image_explainer_placeholder_when_torch_missing(self):
         """With torch absent, ``ImageExplainer`` resolves to a placeholder that raises."""
-        from shapiq import vision
+        _run_isolated(
+            f"""
+            import sys
+            sys.modules["torch"] = None  # make `import torch` raise ImportError
+            from shapiq import vision
 
-        submodules = [
-            "shapiq.vision.explainer",
-            "shapiq.vision.imputer",
-            "shapiq.vision.architecture",
-            "shapiq.vision.masking",
-            "shapiq.vision.utils",
-        ]
-        saved = {name: sys.modules.pop(name, None) for name in submodules}
-        try:
-            with patch.dict(sys.modules, {"torch": None}):
-                placeholder = vision.__getattr__("ImageExplainer")
-                with pytest.raises(ImportError, match=_INSTALL_HINT):
-                    placeholder()
-                with pytest.raises(ImportError, match=_INSTALL_HINT):
-                    vision.__getattr__("ClassificationArchitecture")
-        finally:
-            for name, module in saved.items():
-                if module is not None:
-                    sys.modules[name] = module
-            for name in submodules:
-                importlib.import_module(name)
+            placeholder = vision.__getattr__("ImageExplainer")
+            try:
+                placeholder()
+            except ImportError as err:
+                assert {_INSTALL_HINT!r} in str(err), str(err)
+            else:
+                sys.exit("ImageExplainer placeholder did not raise")
+
+            try:
+                vision.__getattr__("ClassificationArchitecture")
+            except ImportError as err:
+                assert {_INSTALL_HINT!r} in str(err), str(err)
+                sys.exit(0)
+            sys.exit("ClassificationArchitecture did not raise")
+            """
+        )
